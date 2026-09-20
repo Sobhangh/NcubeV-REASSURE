@@ -23,8 +23,11 @@ venv/
 !path_RSSR/
 !path_RSSR/**
 
-# Keep NCubeV precompile test network required by deps/sysimage/trace_run.jl
-!NCubeV/test/networks/acc-3000000-64-64.onnx
+# Keep NCubeV test and dependency ONNX files versioned
+!NCubeV/test/
+!NCubeV/test/**
+!NCubeV/deps/
+!NCubeV/deps/**
 
 # Logs and editor metadata
 *.log
