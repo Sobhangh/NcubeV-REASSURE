@@ -28,4 +28,4 @@ fi
 
 echo "Building NCubeV with: ${JULIA_CMD[*]}"
 
-OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 "${JULIA_CMD[@]}" --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.build();'
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 "${JULIA_CMD[@]}" --project=. -e 'using Pkg; Pkg.instantiate(verbose=true); Pkg.build(verbose=true);'
