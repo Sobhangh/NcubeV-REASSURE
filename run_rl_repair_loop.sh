@@ -1,8 +1,24 @@
+set -euo pipefail
+
 echo "Running example: ACC"
 echo "BEWARE: Before running this you need to build NCubeV"
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 LOG_DIR="${SCRIPT_DIR}/retrain/logs"
+
+if command -v python >/dev/null 2>&1; then
+  PYTHON_BIN=python
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN=python3
+else
+  echo "Error: neither 'python' nor 'python3' is available in PATH."
+  exit 1
+fi
+
+if ! "${PYTHON_BIN}" -c "import polytope" >/dev/null 2>&1; then
+  echo "polytope is not installed for ${PYTHON_BIN}; installing with pip"
+  "${PYTHON_BIN}" -m pip install --break-system-packages polytope
+fi
 
 mkdir -p "${LOG_DIR}"
 
@@ -28,7 +44,7 @@ for i in $(seq 1 10); do
   if (
     cd "${SCRIPT_DIR}"
     echo "[Run ${i}] Starting PPO retraining"
-    python PPO_ACC-Retrain-0.1.py "${i}"
+    "${PYTHON_BIN}" PPO_ACC-Retrain-0.1.py "${i}"
 
     echo "[Run ${i}] Starting NCubeV verification"
     run_ncubev "ppo_acc_bigger_200000_steps-RETRAIN-${i}" "acc_bigger_polytopes-${i}"
