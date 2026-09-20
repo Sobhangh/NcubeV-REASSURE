@@ -15,12 +15,13 @@ Conda.pip_interop(true)
 Conda.add("numpy")
 Conda.add("scipy==1.7")
 Conda.add("threadpoolctl==3.5")
-try
-	Conda.add("protobuf=3.20.*")
-catch err
-	@warn "Conda could not pin protobuf=3.20.*; falling back to pip" exception=(err, catch_backtrace())
-	Conda.pip("install", "protobuf==3.20.3")
-end
+Conda.pip("install", "protobuf==3.20.3")
+# try
+# 	Conda.add("protobuf=3.20.*")
+# catch err
+# 	@warn "Conda could not pin protobuf=3.20.*; falling back to pip" exception=(err, catch_backtrace())
+# 	Conda.pip("install", "protobuf==3.20.3")
+# end
 try
 	Conda.add("onnx==1.9.0")
 catch err
