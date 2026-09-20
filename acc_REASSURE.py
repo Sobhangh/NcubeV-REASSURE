@@ -19,7 +19,7 @@ from REASSURE.REASSURE.Repair import REASSURERepair
 #from REASSURE.ICLR.tools.build_PNN import MultiPointsPNN
 import NCubeV.experiments.acc.training.acc as acc
 import gymnasium as gym
-from gym.utils import seeding
+from gymnasium.utils import seeding
 
 
 def _is_gym_env_registered(env_id):
@@ -27,7 +27,7 @@ def _is_gym_env_registered(env_id):
     try:
         return env_id in gymnasium_registry
     except Exception:
-        return hasattr(gym.envs, "registry") and env_id in getattr(gym.envs.registry, "env_specs", {})
+        return hasattr(gymnasium.envs, "registry") and env_id in getattr(gymnasium.envs.registry, "env_specs", {})
 
 
 def ensure_acc_env_registered(env_id="acc-variant-v1"):
