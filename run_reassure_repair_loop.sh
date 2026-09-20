@@ -18,7 +18,7 @@ fi
 
 if ! "${PYTHON_BIN}" -c "import polytope" >/dev/null 2>&1; then
   echo "polytope is not installed for ${PYTHON_BIN}; installing with pip"
-  "${PYTHON_BIN}" -m pip install polytope
+  "${PYTHON_BIN}" -m pip install --break-system-packages polytope
 fi
 
 mkdir -p "${LOG_DIR}"
