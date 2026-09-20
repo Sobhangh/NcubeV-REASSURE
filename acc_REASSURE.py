@@ -359,7 +359,7 @@ else:
     MODEL_FILE= "path_RSSR/ppo_acc_bigger_200000_steps"
     if RUN_NB > 1:
         poly_file = f"{POLYTOPE_FILE}-{RUN_NB-1}.pkl"
-        model_file = f"{MODEL_FILE}-{UPPER_BOUND}-{RUN_NB-1}.pt"
+        model_file = f"{MODEL_FILE}-{UPPER_BOUND_TAG}-{RUN_NB-1}.pt"
     else:
         poly_file = POLYTOPE_FILE + ".pkl"
         model_file = MODEL_FILE + ".pt"
