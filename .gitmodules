@@ -1,0 +1,6 @@
+[submodule "REASSURE"]
+	path = REASSURE
+	url = https://github.com/BU-DEPEND-Lab/REASSURE.git
+[submodule "NCubeV"]
+	path = NCubeV
+	url = https://github.com/samysweb/NCubeV.git
