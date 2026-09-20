@@ -1,0 +1,24 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+venv/
+.venv/
+
+# Large generated artifacts
+*.onnx
+*.pt
+*.zip
+*.jld
+*.npy
+*.npz
+*.pkl
+*.pickle
+
+# Logs and editor metadata
+*.log
+.DS_Store
+.idea/
+.vscode/
