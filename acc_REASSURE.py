@@ -156,6 +156,7 @@ def evaluate_policy2(model, env, n_eval_episodes=100):
 
 def export_repaired_model_to_onnx(model, onnx_path, input_dim=2, opset_version=9):
     """Export repaired NNSum model to ONNX using a batch-shaped dummy input."""
+    Path(onnx_path).parent.mkdir(parents=True, exist_ok=True)
     export_model = copy.deepcopy(model).eval()
 
     # Freeze all registered parameters.
@@ -452,13 +453,18 @@ for set_upper_bound in set_upper_bound_list:
     
     full_model_path = f"{MODEL_FILE}-{UPPER_BOUND_TAG}-{RUN_NB}.pt"
     onnx_model_path = f"{MODEL_FILE}-{UPPER_BOUND_TAG}-{RUN_NB}.onnx"
+    Path(full_model_path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(repaired_model, full_model_path)
     print(f"Saved full model to: {full_model_path}")
     try:
         export_repaired_model_to_onnx(repaired_model, onnx_model_path, input_dim=input_dim)
+        if not Path(onnx_model_path).is_file():
+            raise FileNotFoundError(f"ONNX export reported success but file was not created: {onnx_model_path}")
         print(f"Saved ONNX model to: {onnx_model_path}")
     except Exception as e:
-        print(f"ONNX export failed for upper bound {set_upper_bound}: {type(e).__name__}: {e}")
+        raise RuntimeError(
+            f"ONNX export failed for upper bound {set_upper_bound}: {type(e).__name__}: {e}"
+        ) from e
         
     total_params = sum(p.numel() for p in repaired_model.target_nn.parameters())
     additional_params = sum(sum(p.numel() for p in layer.parameters()) for layer in repaired_model.pnn.layer_list)
