@@ -327,6 +327,15 @@ parser.add_argument("UPPER_BOUND", type=float, help="Upper bound for the positio
 args = parser.parse_args()
 RUN_NB = args.RUN_NB
 UPPER_BOUND = args.UPPER_BOUND
+
+def format_upper_bound(value):
+    numeric = float(value)
+    if numeric.is_integer():
+        return str(int(numeric))
+    return format(numeric, "g")
+
+UPPER_BOUND_TAG = format_upper_bound(UPPER_BOUND)
+
 POLYTOPE_FILE = ""
 MODEL_FILE= ""
 SMALL_MODEL = False
@@ -441,8 +450,8 @@ for set_upper_bound in set_upper_bound_list:
     #         print(name, param.shape)
     #print(f"layer list length: {len(repaired_model.pnn.layer_list)}")
     
-    full_model_path = f"{MODEL_FILE}-{UPPER_BOUND}-{RUN_NB}.pt"
-    onnx_model_path = f"{MODEL_FILE}-{UPPER_BOUND}-{RUN_NB}.onnx"
+    full_model_path = f"{MODEL_FILE}-{UPPER_BOUND_TAG}-{RUN_NB}.pt"
+    onnx_model_path = f"{MODEL_FILE}-{UPPER_BOUND_TAG}-{RUN_NB}.onnx"
     torch.save(repaired_model, full_model_path)
     print(f"Saved full model to: {full_model_path}")
     try:
