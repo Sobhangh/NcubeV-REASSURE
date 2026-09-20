@@ -17,6 +17,12 @@ venv/
 *.pkl
 *.pickle
 
+# Keep these two experiment folders versioned
+!retrain/
+!retrain/**
+!path_RSSR/
+!path_RSSR/**
+
 # Logs and editor metadata
 *.log
 .DS_Store
