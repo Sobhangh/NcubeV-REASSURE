@@ -1,0 +1,146 @@
+import torch, time, torch.nn as nn, numpy as np
+from scipy.optimize import linprog
+import multiprocessing
+
+from ..ICLR.tools.build_PNN import MultiPNN, NNSum
+from .Tools import linearize_model, get_linear_region, construct_block_matrix
+from .RepairModules import SupportNet, SingleRegionRepairNet, NetSum 
+
+
+class REASSURERepair:
+    def __init__(self, model, input_boundary, n=10):
+        self.model = model
+        self.input_boundary = input_boundary
+        self.n = n
+
+    def point_wise_repair(self, buggy_inputs, output_constraints, core_num=1):
+        print(f'Working on {core_num} cores.')
+        with multiprocessing.Pool(core_num) as pool:
+            repair_net_list = pool.starmap(
+                self._repair_one_area,
+                [(buggy_inputs[i], [output_constraints[0][i], output_constraints[1][i]]) for i in range(len(buggy_inputs))]
+            )
+        return NetSum(self.model, repair_net_list)
+
+
+    def _repair_one_area(self, buggy_input, output_constraint):
+        buggy_input = buggy_input.view(1, -1)
+        buggy_input.requires_grad = True
+        patch_area = get_linear_region(
+            buggy_input, self.model.allHiddenNeurons(buggy_input).view(-1), self.input_boundary)
+        A, b = patch_area
+        # temp = np.matmul(A, buggy_input.detach().squeeze().numpy()) - b
+        g = SupportNet(A, b, self.n)
+        linearized_model = linearize_model(buggy_input, self.model)
+        c, d = self.repair_via_LP(patch_area, output_constraint, linearized_model)
+        p = SingleRegionRepairNet(g, c, d, self.input_boundary)
+        return p
+
+    def polytope_wise_repair(self, patch_areas, output_constraints, core_num=1):
+        print(f'Working on {core_num} cores.')
+        repair_net_list = [self._repair_one_patch(patch_areas[i], [output_constraints[0][i], output_constraints[1][i]]) for i in range(len(patch_areas))]
+        total_repair = len(repair_net_list)
+        # Filter out None values in case some patches did not yield a feasible solution
+        repair_net_list = [p for p in repair_net_list if p is not None]
+        filtered_repair = len(repair_net_list)
+        print(f"Filtered out {(total_repair - filtered_repair)/total_repair}% patches due to infeasibility. Total patches: {total_repair}, Feasible patches: {filtered_repair}")
+        g_list = [p[0] for p in repair_net_list]
+        cd_list = [p[1] for p in repair_net_list]
+        h = MultiPNN(g_list, cd_list, self.input_boundary)
+        return NNSum(self.model, h)
+    
+    def _repair_one_patch(self, patch_area, output_constraint):
+        A, b = patch_area.A, patch_area.b
+        g = SupportNet(A, b, self.n)
+        # For the purpose of linearization, we need a representative point inside the patch
+        # Here we take the center of the patch as the representative point
+        center = np.linalg.pinv(A) @ b
+        buggy_input = torch.tensor(center, dtype=torch.float32).view(1, -1)
+        #print("Representative point for linearization:", buggy_input)
+        buggy_input.requires_grad = True
+        linearized_model = linearize_model(buggy_input, self.model)
+        c, d = self.repair_via_LP((patch_area.A, patch_area.b), output_constraint, linearized_model)
+        if c is None or d is None:
+            print("Warning: LP did not find a feasible solution for this patch. Returning None.")
+            return None
+        p = (g, (c, d)) #SingleRegionRepairNet(g, c, d, self.input_boundary)
+        return p
+
+    def repair_via_LP(self, patch_area, output_constraint, linearized_model: list[np.ndarray]):
+        # A: in_cons_num*in_dim, b: in_cons_num*1
+        # A_out: out_cons_num*out_dim, b_out: out_cons_num*1
+        # cf: out_dim*in_dim, df: out_dim*1
+        # p: in_cons_num*out_dim, p^: in_cons_num*out_dim
+        # q: in_cons_num*out_cons_num
+        # d: out_dim
+        A, b = patch_area
+        b: np.ndarray
+        A_out, b_out = output_constraint
+        cf, df = linearized_model
+        cf: np.ndarray
+        out_dim, in_dim = cf.shape
+        in_cons_num, out_cons_num = b.size, b_out.size
+
+        # temp = linprog(np.ones(in_dim), A_ub=A, b_ub=b, bounds=[None, None])
+        # print(temp.message)
+
+        A_eq = np.block([[construct_block_matrix([A.transpose() for _ in range(out_dim)]), construct_block_matrix([A.transpose() for _ in range(out_dim)]),
+                np.zeros([in_dim*out_dim, in_cons_num*out_cons_num]), np.zeros([in_dim*out_dim, out_dim]), np.zeros([in_dim*out_dim, 1])],
+             [-np.block([[A_out[i, j]*A.transpose() for j in range(out_dim)] for i in range(out_cons_num)]),
+                np.zeros([in_dim*out_cons_num, in_cons_num*out_dim]), construct_block_matrix([A.transpose() for _ in range(out_cons_num)]),
+              np.zeros([in_dim*out_cons_num, out_dim]), np.zeros([in_dim*out_cons_num, 1])]
+             ])
+        b_eq = np.block([np.zeros(in_dim*out_dim), np.block([np.matmul(A_out[i], cf) for i in range(out_cons_num)])])
+        bounds = [None, None]
+        A_ub = np.block([[construct_block_matrix([b for _ in range(out_dim)]), np.zeros([out_dim, in_cons_num*out_dim]), np.zeros([out_dim, in_cons_num*out_cons_num]),
+                          np.eye(out_dim), -np.ones([out_dim, 1])],
+                         [np.zeros([out_dim, in_cons_num*out_dim]), construct_block_matrix([b for _ in range(out_dim)]), np.zeros([out_dim, in_cons_num*out_cons_num]),
+                          -np.eye(out_dim), -np.ones([out_dim, 1])],
+                         [np.zeros([out_cons_num, in_cons_num*out_dim]), np.zeros([out_cons_num, in_cons_num*out_dim]),
+                          construct_block_matrix([b for _ in range(out_cons_num)]), np.block([[A_out[i]]for i in range(out_cons_num)]), np.zeros([out_cons_num, 1])],
+                         [-np.eye(in_cons_num*out_dim*2+in_cons_num*out_cons_num), np.zeros([in_cons_num*out_dim*2+in_cons_num*out_cons_num, out_dim+1])]
+                         ])
+        b_ub = np.block([np.zeros(out_dim), np.zeros(out_dim), np.block([b_out[i] - np.matmul(A_out[i], df) for i in range(out_cons_num)]),
+                         np.zeros(in_cons_num*out_dim*2+in_cons_num*out_cons_num)])
+        objective = np.block([np.zeros(in_cons_num*out_dim*2+in_cons_num*out_cons_num+out_dim), np.ones(1)])
+        solution = linprog(c=objective, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds)
+        # if not solution.success:
+        #     print('There is a problem with solving linear programming: ', solution.message)
+        temp = np.block([construct_block_matrix([A.transpose() for _ in range(out_dim)]),
+                        np.zeros([in_dim*out_dim, in_cons_num*out_dim+in_cons_num*out_cons_num+out_dim+1])])
+        c_x = np.stack([temp[i*in_dim:(i+1)*in_dim] for i in range(out_dim)])
+        d_x = np.block([np.zeros([out_dim, in_cons_num*out_dim*2+in_cons_num*out_cons_num]), np.eye(out_dim),
+                        np.zeros([out_dim, 1])])
+        #print("solutions: ")
+        #print("c_x", c_x, "d_x", d_x, "solution.x", solution.x)
+        if solution.success:
+            return np.matmul(c_x, solution.x), np.matmul(d_x, solution.x)
+        return None, None
+
+
+
+
+if __name__ == '__main__':
+    avg_t = []
+    for i in range(100):
+        R = REASSURERepair(1, 1, 1)
+        in_dim, out_dim = 3, 5
+        in_cons_num, out_cons_num = 125, 5
+        A = np.round(np.random.random([in_cons_num, in_dim]), 4)
+        A_out = np.round(np.random.random([out_cons_num, out_dim]), 4)
+        x, x_out = np.round(np.random.random(in_dim), 4), np.round(np.random.random(out_dim), 4)
+        x = np.absolute(x)
+        b, b_out = np.matmul(A, x), np.matmul(A_out, x_out)
+        b, b_out = b + np.ones_like(b)*0.01, b_out + np.ones_like(b_out)*0.01
+        A = np.block([[A], [np.eye(in_dim)], [-np.eye(in_dim)]])
+        b = np.block([b, np.ones(in_dim), np.zeros(in_dim)])
+        cf, df = np.random.random([out_dim, in_dim]), np.random.random(out_dim)
+        # print(construct_block_matrix([A.transpose() for _ in range(out_dim)]))
+        start = time.time()
+        solution = R.repair_via_LP([A, b], [A_out, b_out], [cf, df])
+        c, d = solution
+        avg_t.append(time.time()-start)
+        print(i, time.time()-start)
+        y = np.matmul(c+cf, x) + df + d
+        print(np.matmul(A_out, y) - b_out <= 0)
+    print(sum(avg_t)/len(avg_t))

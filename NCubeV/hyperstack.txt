@@ -1,0 +1,46 @@
+#####  Be careful to use cuda of 12.6+ when chosing the ubuntu OS ################
+
+cd C:\Users\ghasob\ProjectCodes
+ssh -i RL_CDLG_Hyperstack ubuntu@<ip-addr>
+
+sudo apt update
+
+git clone https://github.com/samysweb/NCubeV.git
+cd NCubeV
+
+curl -fsSL https://install.julialang.org | sh
+source ~/.bashrc
+juliaup add 1.10.4
+juliaup default 1.10.4
+julia -e 'println(VERSION)'
+
+./build.sh julia
+
+chmod +x run_example_acc_small.sh
+./run_example_acc_small.sh
+
+pip install --upgrade pip
+pip install tqdm
+pip install matplotlib
+pip install pandas
+
+
+
+
+live check gpu usage:
+watch -n 1 nvidia-smi
+
+copy file:
+From server to local
+scp -r -i RL_CDLG_Hyperstack ubuntu@185.216.22.224:/home/ubuntu/BitflipDWN_Speech_Command/results C:\Users\ghasob\ProjectCodes\BitflipDWN
+scp -i RL_CDLG_Hyperstack ubuntu@185.216.22.163:/home/ubuntu/NCubeV/experiments/acc/ppo_acc_small_200000_steps/results-approx-1-RERUN-final.jld C:\Users\ghasob\ProjectCodes\repair_lgns\baselines\REASSURE\results-small-approx-1.jld
+scp -i RL_CDLG_Hyperstack ubuntu@38.128.233.166:/home/ubuntu/NCubeV/experiments/acc/ppo_acc_small_200000_steps/polytopes-small-approx-1.pkl C:\Users\ghasob\ProjectCodes\repair_lgns\baselines\REASSURE\polytopes-small-approx-1.pkl
+
+polytopes-small-approx-1.pkl
+
+
+from local to server:
+scp -i RL_CDLG_Hyperstack C:\Users\ghasob\ProjectCodes\repair_lgns\baselines\REASSURE\NCubeV\run_example_acc_small.sh ubuntu@185.216.22.163:/home/ubuntu/NCubeV/run_example_acc_small.sh
+scp -i RL_CDLG_Hyperstack C:\Users\ghasob\ProjectCodes\repair_lgns\baselines\REASSURE\NCubeV\experiments\acc\training\ppo_acc_small_200000_steps.onnx ubuntu@185.216.22.163:/home/ubuntu/NCubeV/test/networks/ppo_acc_small_200000_steps.onnx
+
+scp -i RL_CDLG_Hyperstack C:\Users\ghasob\ProjectCodes\repair_lgns\baselines\REASSURE\acc_Ncube_polytope_convert.jl  ubuntu@38.128.233.166:/home/ubuntu/NCubeV/experiments/acc/ppo_acc_small_200000_steps/convert.jld
