@@ -7,6 +7,15 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 LOG_DIR="${SCRIPT_DIR}/reassure/logs"
 UPPER_BOUND=100
 
+if command -v python >/dev/null 2>&1; then
+  PYTHON_BIN=python
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN=python3
+else
+  echo "Error: neither 'python' nor 'python3' is available in PATH."
+  exit 1
+fi
+
 mkdir -p "${LOG_DIR}"
 
 run_ncubev () {
@@ -20,7 +29,7 @@ for i in $(seq 1 2); do
   if (
     cd "${SCRIPT_DIR}"
     echo "[Run ${i}] Starting REASSURE repair"
-    python acc_REASSURE.py "${i}" "${UPPER_BOUND}"
+    "${PYTHON_BIN}" acc_REASSURE.py "${i}" "${UPPER_BOUND}"
 
     echo "[Run ${i}] Starting NCubeV verification"
     run_ncubev "ppo_acc_bigger_200000_steps-${UPPER_BOUND}-${i}" "acc_bigger_polytopes-${i}"
