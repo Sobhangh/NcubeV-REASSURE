@@ -114,8 +114,8 @@ poly_region = pc.Region(retrain_polytopes)
 
 torch.manual_seed(42)
 
-eval_episode_length=1000
-training_episode_length=200_000
+eval_episode_length=500
+training_episode_length=100_000
 
 if RUN_NB > 1:
     model = PPO.load(f"{MODLE_FILE}-{RUN_NB -1}.zip")
