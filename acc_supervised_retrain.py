@@ -1,4 +1,5 @@
 import argparse
+
 import torch
 import numpy as np
 import gymnasium as gym
@@ -11,6 +12,10 @@ from pathlib import Path
 from stable_baselines3 import PPO
 from stable_baselines3.common.evaluation import evaluate_policy
 import NCubeV.experiments.acc.training.acc as acc
+
+# Set this to "cpu" or "cuda" at the top of the file.
+# Example: DEVICE = "cpu"  or  DEVICE = "cuda"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 class OnnxableActionPolicy(torch.nn.Module):
@@ -165,6 +170,7 @@ def alt_method():
         return rv
 
 def evaluate_policy2(model, env, n_eval_episodes=100):
+    device = next(model.parameters()).device
     episode_rewards = []
     nb_crashes = 0
     for _ in range(n_eval_episodes):
@@ -177,8 +183,9 @@ def evaluate_policy2(model, env, n_eval_episodes=100):
         done = False
         ep_reward = 0.0
         while not done:
+            obs_tensor = torch.tensor([obs], dtype=torch.float32, device=device)
             with torch.no_grad():
-                action_tensor, _, _ = model(torch.tensor([obs], dtype=torch.float32))
+                action_tensor, _, _ = model(obs_tensor)
             action = np.array(action_tensor.cpu().numpy()).reshape(-1)
 
             step_out = env.step(action)
@@ -244,6 +251,7 @@ for i in range(BUGGY_POINT_LEN):
 
 MAX_STEPS = 410
 def collect_obs_act(model, env, n_eval_episodes=BUGGY_POINT_LEN):
+    device = next(model.parameters()).device
     obs_act_list = []
     while len(obs_act_list) < n_eval_episodes:
         reset_out = env.reset()
@@ -259,8 +267,9 @@ def collect_obs_act(model, env, n_eval_episodes=BUGGY_POINT_LEN):
         nb_step = 0
         
         while not done and nb_step < MAX_STEPS:
+            obs_tensor = torch.tensor([obs], dtype=torch.float32, device=device)
             with torch.no_grad():
-                action_tensor, _, _ = model(torch.tensor([obs], dtype=torch.float32))
+                action_tensor, _, _ = model(obs_tensor)
             #print(f"obs: {obs}, action_tensor: {action_tensor}")
             action = np.array(action_tensor.cpu().numpy()).reshape(-1)
 
@@ -269,7 +278,7 @@ def collect_obs_act(model, env, n_eval_episodes=BUGGY_POINT_LEN):
                 obs, reward, terminated, truncated, info = step_out
                 if terminated and info.get("crash", False):
                     crash = True
-                    print(info)
+                    #print(info)
                 done = bool(terminated or truncated)
             else:
                 obs, reward, done, info = step_out
@@ -292,8 +301,8 @@ env2.unwrapped.INCLUDE_UNWINNABLE = False
 env2.np_random, seed = seeding.np_random(42)
 torch.manual_seed(42)
 
-model = PPO.load(MODLE_FILE)
-
+model = PPO.load(MODLE_FILE, device=DEVICE)
+model.policy.to(DEVICE)
 model.set_env(env2)
 
 
@@ -310,13 +319,13 @@ train_actions = []
 
 # Data from buggy_points (correct label is 1)
 for point in buggy_points:
-    train_obs.append(torch.tensor(point, dtype=torch.float32))
-    train_actions.append(torch.tensor([1.0], dtype=torch.float32))
+    train_obs.append(torch.tensor(point, dtype=torch.float32, device=DEVICE))
+    train_actions.append(torch.tensor([1.0], dtype=torch.float32, device=DEVICE))
 
 # Data from obs_act_list (correct output is the action from the tuple)
 for obs, action in obs_act_list:
-    train_obs.append(torch.tensor(obs, dtype=torch.float32))
-    train_actions.append(torch.tensor(action, dtype=torch.float32))
+    train_obs.append(torch.tensor(obs, dtype=torch.float32, device=DEVICE))
+    train_actions.append(torch.tensor(action, dtype=torch.float32, device=DEVICE))
 
 train_obs = torch.stack(train_obs)
 train_actions = torch.stack(train_actions)
@@ -338,8 +347,8 @@ Loss = 100
 epoch = 0
 while Loss > 0.05:
     for i in range(0, len(train_obs), batch_size):
-        batch_obs = train_obs[i:i+batch_size]
-        batch_actions = train_actions[i:i+batch_size]
+        batch_obs = train_obs[i:i+batch_size].to(DEVICE)
+        batch_actions = train_actions[i:i+batch_size].to(DEVICE)
         
         optimizer.zero_grad()
         predictions, _, _ = model.policy(batch_obs)
