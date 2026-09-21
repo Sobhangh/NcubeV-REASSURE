@@ -358,8 +358,11 @@ export_model_artifacts(model, final_zip_path, final_onnx_path)
 print(f"Saved PPO model to: {final_zip_path}")
 print(f"Saved ONNX model to: {final_onnx_path}")
 
+mean_reward, std_reward, nb_crashes = evaluate_policy2(model.policy, env2, n_eval_episodes=500)
+print(f"After retraining, mean_reward: {mean_reward:.2f} +/- {std_reward:.2f}, crashes: {nb_crashes}")
 
-# mean_reward, std_reward, nb_crashes = evaluate_policy2(model.policy, env2, n_eval_episodes=1000)
+raise SystemExit(0 if nb_crashes == 0 else 1)
 
-# print(f"After retraining, mean_reward: {mean_reward:.2f} +/- {std_reward:.2f}, crashes: {nb_crashes}")
+    
+
 #After retraining, mean_reward: 2468.28 +/- 1768.67, crashes: 5

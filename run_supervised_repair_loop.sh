@@ -22,27 +22,35 @@ run_ncubev () {
   OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./NCubeV/deps/NCubeV/bin/NCubeV NCubeV/test/parsing/examples/acc/formula NCubeV/test/parsing/examples/acc/fixed NCubeV/test/parsing/examples/acc/mapping "${SCRIPT_DIR}/supervised/${1}.onnx" "${SCRIPT_DIR}/supervised/${2}.jld" --approx 1
 }
 
-for i in $(seq 1 2); do
-  log_file="${LOG_DIR}/supervised_repair_run_${i}.log"
-  echo "Starting run ${i}. Logs: ${log_file}"
+run_nb=1
+while true; do
+  log_file="${LOG_DIR}/supervised_repair_run_${run_nb}.log"
+  echo "Starting run ${run_nb}. Logs: ${log_file}"
+
+  if (
+    cd "${SCRIPT_DIR}"
+    echo "[Run ${run_nb}] Starting supervised retraining"
+    "${PYTHON_BIN}" acc_supervised_retrain.py "${run_nb}"
+  ) > "${log_file}" 2>&1; then
+    echo "Run ${run_nb} reached zero crashes. Stopping loop."
+    break
+  fi
+
+  echo "Run ${run_nb} did not reach zero crashes. Running NCubeV + conversion before retry."
 
   (
     cd "${SCRIPT_DIR}"
-    echo "[Run ${i}] Starting supervised retraining"
-    "${PYTHON_BIN}" acc_supervised_retrain.py "${i}"
+    echo "[Run ${run_nb}] Starting NCubeV verification"
+    run_ncubev "ppo_acc_bigger_200000_steps-${run_nb}" "acc_bigger_polytopes-${run_nb}"
 
-    echo "[Run ${i}] Starting NCubeV verification"
-    run_ncubev "ppo_acc_bigger_200000_steps-${i}" "acc_bigger_polytopes-${i}"
+    echo "[Run ${run_nb}] Converting JLD to PKL"
+    julia acc_Ncube_polytope_convert.jl "supervised/acc_bigger_polytopes-${run_nb}.jld"
 
-    echo "[Run ${i}] Converting JLD to PKL"
-    julia acc_Ncube_polytope_convert.jl "supervised/acc_bigger_polytopes-${i}.jld"
+    echo "[Run ${run_nb}] Completed successfully"
+  ) >> "${log_file}" 2>&1
 
-    echo "[Run ${i}] Completed successfully"
-  ) > "${log_file}" 2>&1 || {
-    echo "Run ${i} failed. Full log from ${log_file}:"
-    cat "${log_file}"
-    exit 1
-  }
-
-  echo "Run ${i} completed successfully."
+  echo "Run ${run_nb} post-processing completed. Retrying supervised retraining."
+  run_nb=$((run_nb + 1))
 done
+
+echo "Supervised loop ended after successful retraining run ${run_nb}."
