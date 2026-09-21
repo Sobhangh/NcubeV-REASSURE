@@ -3,3 +3,6 @@ matplotlib
 onnx
 onnx2torch
 gymnasium
+gym
+stable_baselines3
+shimmy

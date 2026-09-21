@@ -21,6 +21,11 @@ import NCubeV.experiments.acc.training.acc as acc
 import gymnasium as gym
 from gymnasium.utils import seeding
 
+#Is it possible to retrain a REASSURE patched network?
+#Here is an error which says non linear operations may not be supported:
+#  File "/home/ubuntu/NcubeV-REASSURE/NCubeV/src/Verifiers/../../deps/nnenum/src/nnenum/onnx_network.py", line 760, in load_onnx_network
+#     assert o in Settings.ONNX_WHITELIST, f"Onnx model contains node with op {o}, which may not be a linear operation. " + \
+
 
 def _is_gym_env_registered(env_id):
     from gymnasium.envs.registration import registry as gymnasium_registry
@@ -415,9 +420,10 @@ for set_upper_bound in set_upper_bound_list:
 
     intersected_poly = []
     for poly in polytopes:
-        isect = poly.intersect(position_bound_poly)
-        if not pc.is_empty(isect):
-            intersected_poly.append(isect)
+        # isect = poly.intersect(position_bound_poly)
+        # if not pc.is_empty(isect):
+        #     intersected_poly.append(isect)
+        intersected_poly.append(poly)
     print("Intersected non-empty polytopes:", len(intersected_poly))
 
 

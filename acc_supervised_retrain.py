@@ -1,14 +1,67 @@
+import argparse
 import torch
 import numpy as np
 import gymnasium as gym
 import pickle
 import polytope as pc
+import copy
 from gymnasium.utils import seeding
 import importlib.util
 from pathlib import Path
 from stable_baselines3 import PPO
 from stable_baselines3.common.evaluation import evaluate_policy
 import NCubeV.experiments.acc.training.acc as acc
+
+
+class OnnxableActionPolicy(torch.nn.Module):
+    def __init__(self, extractor, action_net, value_net):
+        super(OnnxableActionPolicy, self).__init__()
+        self.extractor = extractor
+        self.action_net = action_net
+        self.value_net = value_net
+        normalize_linear1 = torch.nn.Linear(1, 4)
+        normalize_linear1.weight.data = torch.Tensor([[1], [-1], [1], [-1]])
+        normalize_linear1.bias.data = torch.Tensor([0, 0, -1, -1])
+        a_value = 100 - 1e-6
+        normalize_linear2 = torch.nn.Linear(3, 1)
+        normalize_linear2.weight.data = torch.Tensor([[a_value, -a_value, -a_value, a_value]])
+        normalize_linear2.bias.data = torch.Tensor([0])
+        self.normalizer = torch.nn.Sequential(
+            normalize_linear1,
+            torch.nn.ReLU(),
+            normalize_linear2,
+        )
+
+    def forward(self, observation):
+        action_hidden, value_hidden = self.extractor(observation)
+        action = self.action_net(action_hidden)
+        return self.normalizer(action)
+
+
+def export_model_artifacts(model, zip_path, onnx_path, input_dim=2, opset_version=9):
+    zip_path = Path(zip_path)
+    onnx_path = Path(onnx_path)
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    onnx_path.parent.mkdir(parents=True, exist_ok=True)
+
+    model.save(str(zip_path))
+
+    onnxable_model = OnnxableActionPolicy(
+        model.policy.mlp_extractor,
+        model.policy.action_net,
+        model.policy.value_net,
+    )
+    onnxable_model.graph.output[0].name = "out1"
+    onnxable_model.graph.node[len(onnxable_model.graph.node)-1].output[0]="out1"
+
+    dummy_input = torch.randn(1, input_dim)
+    with torch.no_grad():
+        torch.onnx.export(
+            onnxable_model,
+            dummy_input,
+            str(onnx_path),
+            opset_version=opset_version,
+        )
 
 def alt_method():
     def cheby_ball(poly1):
@@ -147,6 +200,14 @@ def evaluate_policy2(model, env, n_eval_episodes=100):
     return float(np.mean(episode_rewards)), float(np.std(episode_rewards)), nb_crashes
 
 
+parser = argparse.ArgumentParser(description="Supervised retraining for the ACC PPO policy.")
+parser.add_argument("RUN_NB", type=int, help="Run number for naming outputs.")
+args = parser.parse_args()
+
+RUN_NB = args.RUN_NB
+
+OUTPUT_DIR = "supervised"
+
 env = gym.make('acc-variant-v1')
 
 env.unwrapped.INCLUDE_UNWINNABLE = False
@@ -160,8 +221,12 @@ if SMALL_MODLE:
     POLYTOPE_FILE = "polytopes-small-approx-1.pkl"
     MODLE_FILE = "ppo_acc_small_200000_steps.zip"
 else:
-    POLYTOPE_FILE = "acc-2000000-64-64-64-64-polytopes.pickle"
-    MODLE_FILE = "ppo_acc_bigger_200000_steps.zip"
+    POLYTOPE_FILE = "supervised/acc-2000000-64-64-64-64-polytopes.pkl"
+    if RUN_NB > 1:
+        POLYTOPE_FILE = f"supervised/acc-2000000-64-64-64-64-polytopes-{RUN_NB - 1}.pkl"
+        MODLE_FILE = f"supervised/ppo_acc_bigger_200000_steps-{RUN_NB - 1}.zip"
+    else:
+        MODLE_FILE = "supervised/ppo_acc_bigger_200000_steps.zip"
 
 retrain_polytopes = None
 with open(POLYTOPE_FILE,"rb") as f:
@@ -171,7 +236,7 @@ poly_region = pc.Region(retrain_polytopes)
 
 env.unwrapped.init_polytopes(0.0,retrain_polytopes)
 
-BUGGY_POINT_LEN = 10000
+BUGGY_POINT_LEN = 100_000
 buggy_points = []
 for i in range(BUGGY_POINT_LEN):
     point, _ = env.unwrapped.polytope_reset()
@@ -287,10 +352,14 @@ while Loss > 0.05:
     print(f"Epoch {epoch+1}, Loss: {loss.item():.4f}")
     epoch += 1
 
+final_zip_path = OUTPUT_DIR / f"ppo_acc_bigger_200000_steps-{RUN_NB}.zip"
+final_onnx_path = OUTPUT_DIR / f"ppo_acc_bigger_200000_steps-{RUN_NB}.onnx"
+export_model_artifacts(model, final_zip_path, final_onnx_path)
+print(f"Saved PPO model to: {final_zip_path}")
+print(f"Saved ONNX model to: {final_onnx_path}")
 
-mean_reward, std_reward, nb_crashes = evaluate_policy2(model.policy, env2, n_eval_episodes=1000)
 
-print(f"After retraining, mean_reward: {mean_reward:.2f} +/- {std_reward:.2f}, crashes: {nb_crashes}")
+# mean_reward, std_reward, nb_crashes = evaluate_policy2(model.policy, env2, n_eval_episodes=1000)
+
+# print(f"After retraining, mean_reward: {mean_reward:.2f} +/- {std_reward:.2f}, crashes: {nb_crashes}")
 #After retraining, mean_reward: 2468.28 +/- 1768.67, crashes: 5
-
-

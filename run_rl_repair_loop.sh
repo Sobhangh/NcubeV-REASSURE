@@ -41,7 +41,7 @@ for i in $(seq 1 10); do
   log_file="${LOG_DIR}/repair_loop_run_${i}.log"
   echo "Starting run ${i}. Logs: ${log_file}"
 
-  if (
+  (
     cd "${SCRIPT_DIR}"
     echo "[Run ${i}] Starting PPO retraining"
     "${PYTHON_BIN}" PPO_ACC-Retrain-0.1.py "${i}"
@@ -53,9 +53,11 @@ for i in $(seq 1 10); do
     julia acc_Ncube_polytope_convert.jl "retrain/acc_bigger_polytopes-${i}.jld"
 
     echo "[Run ${i}] Completed successfully"
-  ) > "${log_file}" 2>&1; then
-    echo "Run ${i} completed successfully."
-  else
-    echo "Run ${i} failed. Check ${log_file}"
-  fi
+  ) > "${log_file}" 2>&1 || {
+    echo "Run ${i} failed. Full log from ${log_file}:"
+    cat "${log_file}"
+    exit 1
+  }
+
+  echo "Run ${i} completed successfully."
 done

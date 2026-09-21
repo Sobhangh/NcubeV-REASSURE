@@ -16,7 +16,7 @@ from stable_baselines3.common.evaluation import evaluate_policy
 import torch
 from torch import nn
 
-from gym.utils import seeding
+from gymnasium.utils import seeding
 import NCubeV.experiments.acc.training.acc as acc
 
 class OnnxableActionPolicy(torch.nn.Module):
