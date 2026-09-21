@@ -27,11 +27,11 @@ run_ncubev () {
   OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./NCubeV/deps/NCubeV/bin/NCubeV NCubeV/test/parsing/examples/acc/formula NCubeV/test/parsing/examples/acc/fixed NCubeV/test/parsing/examples/acc/mapping "${SCRIPT_DIR}/path_RSSR/${1}.onnx" "${SCRIPT_DIR}/path_RSSR/${2}.jld" --approx 1
 }
 
-echo "Run Starting NCubeV verification"
-run_ncubev "ppo_acc_bigger_200000_steps-${UPPER_BOUND}-${i}" "acc_bigger_polytopes"
+echo "Initial Run Starting NCubeV verification"
+run_ncubev "ppo_acc_bigger_200000_steps" "acc_bigger_polytopes"
 
-echo "[Run ${i}] Converting JLD to PKL"
-julia acc_Ncube_polytope_convert.jl "path_RSSR/acc_bigger_polytopes-${i}.jld"
+echo "Initial Run Converting JLD to PKL"
+julia acc_Ncube_polytope_convert.jl "path_RSSR/acc_bigger_polytopes.jld"
 
 for i in $(seq 1 2); do
   log_file="${LOG_DIR}/reassure_repair_run_${i}_ub_${UPPER_BOUND}.log"
