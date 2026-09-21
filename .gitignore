@@ -22,6 +22,8 @@ venv/
 !retrain/**
 !path_RSSR/
 !path_RSSR/**
+!supervised/
+!supervised/**
 
 # Keep NCubeV test and dependency ONNX files versioned
 !NCubeV/test/
