@@ -6,3 +6,4 @@ gymnasium
 gym
 stable_baselines3
 shimmy
+onnxscript

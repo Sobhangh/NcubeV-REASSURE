@@ -6,6 +6,7 @@ import gymnasium as gym
 import pickle
 import polytope as pc
 import copy
+import onnx
 from gymnasium.utils import seeding
 import importlib.util
 from pathlib import Path
@@ -67,6 +68,10 @@ def export_model_artifacts(model, zip_path, onnx_path, input_dim=2, opset_versio
             str(onnx_path),
             opset_version=opset_version,
         )
+
+    onnx_model = onnx.load(str(onnx_path))
+    onnx_model.ir_version = min(onnx_model.ir_version, 7)
+    onnx.save(onnx_model, str(onnx_path))
 
 def alt_method():
     def cheby_ball(poly1):
@@ -213,7 +218,8 @@ args = parser.parse_args()
 
 RUN_NB = args.RUN_NB
 
-OUTPUT_DIR = "supervised"
+SCRIPT_DIR = Path(__file__).resolve().parent
+OUTPUT_DIR = SCRIPT_DIR / "supervised"
 
 env = gym.make('acc-variant-v1')
 
@@ -228,12 +234,12 @@ if SMALL_MODLE:
     POLYTOPE_FILE = "polytopes-small-approx-1.pkl"
     MODLE_FILE = "ppo_acc_small_200000_steps.zip"
 else:
-    POLYTOPE_FILE = "supervised/acc-2000000-64-64-64-64-polytopes.pkl"
+    POLYTOPE_FILE = SCRIPT_DIR / "supervised" / "acc-2000000-64-64-64-64-polytopes.pkl"
     if RUN_NB > 1:
-        POLYTOPE_FILE = f"supervised/acc-2000000-64-64-64-64-polytopes-{RUN_NB - 1}.pkl"
-        MODLE_FILE = f"supervised/ppo_acc_bigger_200000_steps-{RUN_NB - 1}.zip"
+        POLYTOPE_FILE = SCRIPT_DIR / "supervised" / f"acc-2000000-64-64-64-64-polytopes-{RUN_NB - 1}.pkl"
+        MODLE_FILE = str(OUTPUT_DIR / f"ppo_acc_bigger_200000_steps-{RUN_NB - 1}.zip")
     else:
-        MODLE_FILE = "supervised/ppo_acc_bigger_200000_steps.zip"
+        MODLE_FILE = str(OUTPUT_DIR / "ppo_acc_bigger_200000_steps.zip")
 
 retrain_polytopes = None
 with open(POLYTOPE_FILE,"rb") as f:
@@ -320,7 +326,7 @@ train_actions = []
 # Data from buggy_points (correct label is 1)
 for point in buggy_points:
     train_obs.append(torch.tensor(point, dtype=torch.float32, device=DEVICE))
-    train_actions.append(torch.tensor([1.0], dtype=torch.float32, device=DEVICE))
+    train_actions.append(torch.tensor([1.02], dtype=torch.float32, device=DEVICE))
 
 # Data from obs_act_list (correct output is the action from the tuple)
 for obs, action in obs_act_list:
@@ -345,7 +351,7 @@ print(f"Starting supervised retraining for with batch size {batch_size}...")
 #for epoch in range(n_epochs):
 Loss = 100
 epoch = 0
-while Loss > 0.05:
+while Loss > 0.06:
     for i in range(0, len(train_obs), batch_size):
         batch_obs = train_obs[i:i+batch_size].to(DEVICE)
         batch_actions = train_actions[i:i+batch_size].to(DEVICE)
@@ -361,8 +367,8 @@ while Loss > 0.05:
     print(f"Epoch {epoch+1}, Loss: {loss.item():.4f}")
     epoch += 1
 
-final_zip_path =  f"{OUTPUT_DIR}/ppo_acc_bigger_200000_steps-{RUN_NB}.zip"
-final_onnx_path =  f"{OUTPUT_DIR}/ppo_acc_bigger_200000_steps-{RUN_NB}.onnx"
+final_zip_path = OUTPUT_DIR / f"ppo_acc_bigger_200000_steps-{RUN_NB}.zip"
+final_onnx_path = OUTPUT_DIR / f"ppo_acc_bigger_200000_steps-{RUN_NB}.onnx"
 export_model_artifacts(model, final_zip_path, final_onnx_path)
 print(f"Saved PPO model to: {final_zip_path}")
 print(f"Saved ONNX model to: {final_onnx_path}")
