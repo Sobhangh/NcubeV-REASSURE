@@ -56,8 +56,8 @@ def export_model_artifacts(model, zip_path, onnx_path, input_dim=2, opset_versio
         model.policy.action_net,
         model.policy.value_net,
     )
-    onnxable_model.graph.output[0].name = "out1"
-    onnxable_model.graph.node[len(onnxable_model.graph.node)-1].output[0]="out1"
+    # onnxable_model.graph.output[0].name = "out1"
+    # onnxable_model.graph.node[len(onnxable_model.graph.node)-1].output[0]="out1"
 
     dummy_input = torch.randn(1, input_dim)
     with torch.no_grad():

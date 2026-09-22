@@ -205,7 +205,7 @@ for p in [0.1]:
 
 
 onnxable_model = OnnxableActionPolicy(model.policy.mlp_extractor, model.policy.action_net, model.policy.value_net)
-onnxable_model.graph.output[0].name = "out1"
-onnxable_model.graph.node[len(onnxable_model.graph.node)-1].output[0]="out1"
+# onnxable_model.graph.output[0].name = "out1"
+# onnxable_model.graph.node[len(onnxable_model.graph.node)-1].output[0]="out1"
 dummy_input = torch.randn(1, 2)
 torch.onnx.export(onnxable_model, dummy_input, f"{MODLE_FILE}-{RUN_NB}.onnx", opset_version=9)
