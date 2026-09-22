@@ -345,7 +345,7 @@ print(f"Starting supervised retraining for with batch size {batch_size}...")
 #for epoch in range(n_epochs):
 Loss = 100
 epoch = 0
-while Loss > 0.1:
+while Loss > 0.05:
     for i in range(0, len(train_obs), batch_size):
         batch_obs = train_obs[i:i+batch_size].to(DEVICE)
         batch_actions = train_actions[i:i+batch_size].to(DEVICE)

@@ -3,6 +3,17 @@ set -euo pipefail
 echo "Running example: ACC SUPERVISED"
 echo "BEWARE: Before running this you need to build NCubeV and have the supervised dependencies available"
 
+start_time=$(date +%s)
+
+print_total_runtime() {
+  local end_time elapsed
+  end_time=$(date +%s)
+  elapsed=$((end_time - start_time))
+  echo "Total runtime: ${elapsed}s"
+}
+
+trap print_total_runtime EXIT
+
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 LOG_DIR="${SCRIPT_DIR}/supervised/logs"
 
