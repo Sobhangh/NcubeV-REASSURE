@@ -28,10 +28,19 @@ run_ncubev () {
 }
 
 echo "Initial Run Starting NCubeV verification"
-run_ncubev "ppo_acc_bigger_200000_steps" "acc_bigger_polytopes"
+log_file="${LOG_DIR}/reassure_repair_run_initial.log"
+run_ncubev "ppo_acc_bigger_200000_steps" "acc_bigger_polytopes" > "${log_file}" 2>&1 || {
+    echo "Initial run failed. Full log from ${log_file}:"
+    cat "${log_file}"
+    exit 1
+  }
 
 echo "Initial Run Converting JLD to PKL"
-julia acc_Ncube_polytope_convert.jl "path_RSSR/acc_bigger_polytopes.jld"
+julia acc_Ncube_polytope_convert.jl "path_RSSR/acc_bigger_polytopes.jld" > "${log_file}" 2>&1 || {
+    echo "Initial run failed. Full log from ${log_file}:"
+    cat "${log_file}"
+    exit 1
+  }
 
 for i in $(seq 1 2); do
   log_file="${LOG_DIR}/reassure_repair_run_${i}_ub_${UPPER_BOUND}.log"

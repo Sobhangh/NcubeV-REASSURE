@@ -334,7 +334,7 @@ train_actions = torch.stack(train_actions)
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.policy.parameters(), lr=1e-5)
 n_epochs = 20
-batch_size = 32
+batch_size = 256
 
 mean_reward, std_reward, nb_crashes = evaluate_policy2(model.policy, env2, n_eval_episodes=1000)
 print(f"Before retraining, mean_reward: {mean_reward:.2f} +/- {std_reward:.2f}, crashes: {nb_crashes}")
@@ -345,7 +345,7 @@ print(f"Starting supervised retraining for with batch size {batch_size}...")
 #for epoch in range(n_epochs):
 Loss = 100
 epoch = 0
-while Loss > 0.05:
+while Loss > 0.1:
     for i in range(0, len(train_obs), batch_size):
         batch_obs = train_obs[i:i+batch_size].to(DEVICE)
         batch_actions = train_actions[i:i+batch_size].to(DEVICE)
@@ -361,8 +361,8 @@ while Loss > 0.05:
     print(f"Epoch {epoch+1}, Loss: {loss.item():.4f}")
     epoch += 1
 
-final_zip_path = OUTPUT_DIR / f"ppo_acc_bigger_200000_steps-{RUN_NB}.zip"
-final_onnx_path = OUTPUT_DIR / f"ppo_acc_bigger_200000_steps-{RUN_NB}.onnx"
+final_zip_path =  f"{OUTPUT_DIR}/ppo_acc_bigger_200000_steps-{RUN_NB}.zip"
+final_onnx_path =  f"{OUTPUT_DIR}/ppo_acc_bigger_200000_steps-{RUN_NB}.onnx"
 export_model_artifacts(model, final_zip_path, final_onnx_path)
 print(f"Saved PPO model to: {final_zip_path}")
 print(f"Saved ONNX model to: {final_onnx_path}")
