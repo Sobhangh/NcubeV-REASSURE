@@ -9,17 +9,25 @@ import polytope as pc
 import pickle
 import matplotlib.pyplot as plt
 import numpy as np
-import multiprocessing
 
 import onnx
 from onnx2torch import convert
 import torch
 
 from REASSURE.REASSURE.Repair import REASSURERepair
+from REASSURE.ICLR.tools.linear_region import linear_region_from_input, find_all_linear_regions, redundant_constraints_remover
+from REASSURE.ICLR.tools.build_PNN import MultiPointsPNN, NNSum, PatchNN
+
 #from REASSURE.ICLR.tools.build_PNN import MultiPointsPNN
 import NCubeV.experiments.acc.training.acc as acc
 import gymnasium as gym
 from gymnasium.utils import seeding
+
+from REASSURE.REASSURE.RepairModules import SingleRegionRepairNet
+from REASSURE.REASSURE.Tools import get_linear_region
+import torch.nn.functional as F
+
+
 
 #Is it possible to retrain a REASSURE patched network?
 #Here is an error which says non linear operations may not be supported:
@@ -254,6 +262,18 @@ def plot_polytope(poly):
         plt.tight_layout()
         plt.show()
 
+def allHiddenNeurons(self, x):
+    hidden_neurons = []
+    x = x.view(2)
+    for i, layer in enumerate(self):
+        if i == len(self) - 1:
+            continue
+        if i == 0:
+            x = layer(x)
+        else:
+            x = layer(F.relu(x))
+        hidden_neurons.append(x)
+    return torch.cat(hidden_neurons, dim=-1)
 
 class OnnxableActionPolicy(torch.nn.Module):
     def __init__(self, network):
@@ -285,7 +305,8 @@ MAXIMUM = 1.2
 def success_rate(model, buggy_inputs, is_print=0):
     with torch.no_grad():
         pred = model(buggy_inputs)
-        #print("pred", pred)
+        if is_print == 2:
+            print("pred", pred)
         correct = ((pred >= MINIMUM) & (pred <= MAXIMUM)).type(torch.float).sum().item()
     if is_print == 1:
         print('Original accuracy on buggy_inputs: {} %'.format(100*correct / len(buggy_inputs)))
@@ -424,10 +445,21 @@ for set_upper_bound in set_upper_bound_list:
         # if not pc.is_empty(isect):
         #     intersected_poly.append(isect)
         intersected_poly.append(poly)
+    
     print("Intersected non-empty polytopes:", len(intersected_poly))
-
+    # print(intersected_poly[0].A, intersected_poly[0].A.shape)
+    # print(intersected_poly[0].b, intersected_poly[0].b.shape)
+    
 
     buggy_inputs = torch.stack(list(map(lambda p: any_point_in_polytope(p)[0], list(filter(lambda p: any_point_in_polytope(p) is not None, intersected_poly)))))
+
+    # A = np.concatenate([np.eye(2), -np.eye(2)], axis=0)
+    # b = np.array([100, 200, -0.0, -200.0])
+    # all_linear_regions = find_all_linear_regions(A, b, torch_model.layers)
+    # PNN = MultiPointsPNN(torch_model, n, bounds, test_model=False)
+    # PNN.area_repair(all_linear_regions, P, ql, qu)
+    # repaired_model = PNN.compute(4)
+    
     
     # input_boundary = [np.block([[np.eye(input_dim)], [-np.eye(input_dim)]]),
     #                       np.block([np.array([100, 200]), np.array([0, 200])])]
@@ -437,8 +469,46 @@ for set_upper_bound in set_upper_bound_list:
     start = time()
 
 
+    def lin_f(buggy_input):
+        buggy_input = torch.tensor([buggy_input[0], buggy_input[1]], dtype=torch.float32)
+        buggy_input = buggy_input.view(1, -1)
+        buggy_input.requires_grad = True
+        return get_linear_region(
+                buggy_input, allHiddenNeurons(torch_model,buggy_input).view(-1), [np.block([[np.eye(input_dim)], [-np.eye(input_dim)]]), np.block([np.array([100, 200]), np.array([0, 200])])])
+
+    print("Computing linear regions for buggy inputs...")
+    # get_linear_region returns (A, b), so keep regions as a list of tuples
+    linear_regions_nn = [lin_f(buggy_input) for buggy_input in buggy_inputs]
+    #print("Removing redundant constraints from linear regions...")
+    # reduced_linear_regions = []
+    # for i, region in enumerate(linear_regions_nn):
+    #     A, b = region
+    #     A_reduced, b_reduced = redundant_constraints_remover(A, b, is_gurobi=True, stay_index=list(range(2*len(A[0]))))
+    #     reduced_linear_regions.append((A_reduced, b_reduced))
+    #     if i % max(1, (len(linear_regions_nn) // 10)) == 0:
+    #         print(f"Processed {i}/{len(linear_regions_nn)} linear regions.")
+    # linear_regions_nn = reduced_linear_regions
+    linear_regions_nn = [pc.Polytope(region[0], region[1]) for region in linear_regions_nn]
+    print("Linear regions computed and redundant constraints removed.")
+
     REASSURE = REASSURERepair(torch_model, input_boundary, n=1)
-    repaired_model = REASSURE.polytope_wise_repair(intersected_poly, output_constraints=output_constraints, core_num=1)
+    repaired_model = REASSURE.polytope_wise_repair(linear_regions_nn, output_constraints=output_constraints, core_num=1)
+    #repaired_model = REASSURE.polytope_wise_repair(intersected_poly, output_constraints=output_constraints, core_num=1)
+
+
+    # print("Starting patching for each polytope...")
+    # nb_corr = 0
+    # for i, p in enumerate(linear_regions_nn):
+    #     gcd = REASSURE._repair_one_patch(p,([np.array([[-1], [1]]) ,np.array([-MINIMUM, MAXIMUM])]))
+    #     #patch_net = SingleRegionRepairNet(gcd[0], torch.tensor(gcd[1][0], dtype=torch.float32), torch.tensor(gcd[1][1], dtype=torch.float32),[np.block([[np.eye(input_dim)], [-np.eye(input_dim)]]),np.block([np.array([100, 200]), np.array([0, 200])])])
+    #     patch_net = PatchNN(gcd[0], torch.tensor(gcd[1][0], dtype=torch.float32), torch.tensor(gcd[1][1], dtype=torch.float32))
+    #     repaired_model = NNSum(torch_model, patch_net)
+    #     y = repaired_model(buggy_inputs[i])
+    #     if (y >= MINIMUM):
+    #         nb_corr += 1
+    #     print(y)
+    # print(f"Number of corrected buggy inputs: {nb_corr} out of {len(buggy_inputs)}")
+    # exit(0)
 
     # n = 10
     # input_boundary = [np.array([200, 200]), np.array([-200, -200])]
@@ -474,7 +544,9 @@ for set_upper_bound in set_upper_bound_list:
         
     total_params = sum(p.numel() for p in repaired_model.target_nn.parameters())
     additional_params = sum(sum(p.numel() for p in layer.parameters()) for layer in repaired_model.pnn.layer_list)
+    #print(f"layer parameters: {additional_params}")
     additional_params += sum(sum(p.numel() for p in g.parameters()) for g in repaired_model.pnn.g_list)
+    #print(f"g parameters: {additional_params}")
     additional_params += len(repaired_model.pnn.K_list)  # Each K is a scalar parameter
     total_params += additional_params
     print(f"Total parameters in repaired model: {total_params}")

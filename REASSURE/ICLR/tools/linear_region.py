@@ -42,9 +42,9 @@ def is_redundant(A, b, c, d, is_gurobi):
     if res <= d:
         return True
     else:
-        print('-')
-        print(res)
-        print(d)
+        # print('-')
+        # print(res)
+        # print(d)
         return False
 
 
@@ -57,7 +57,7 @@ def remove_redundant_constraints_first_step(A, b, is_gurobi, stay_index):
             pass
         else:
             stay_index.append(i)
-        print(len(stay_index))
+        #print(len(stay_index))
     return A[stay_index], b[stay_index]
 
 
@@ -71,7 +71,7 @@ def remove_redundant_constraints_last_step(A: np.array, b: np.array, is_gurobi, 
             A, b = np.delete(A, i, 0), np.delete(b, i, 0)
         else:
             i += 1
-        print(len(A))
+        #print(len(A))
     return A, b
 
 

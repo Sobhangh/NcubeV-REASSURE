@@ -53,8 +53,8 @@ julia acc_Ncube_polytope_convert.jl "path_RSSR/acc_bigger_polytopes-final.jld" >
 
   
 echo "Starting REASSURE repair"
-"${PYTHON_BIN}" acc_REASSURE.py "initial" "${UPPER_BOUND}" > "${log_file}" 2>&1 || {
-echo "Initial run failed. Full log from ${log_file}:"
+"${PYTHON_BIN}" acc_REASSURE.py 1 100 > "${log_file}" 2>&1 || {
+echo "REASSURE repair failed. Full log from ${log_file}:"
 cat "${log_file}"
 exit 1
 }
