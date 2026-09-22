@@ -38,6 +38,7 @@ run_ncubev () {
   OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./NCubeV/deps/NCubeV/bin/NCubeV NCubeV/test/parsing/examples/acc/formula NCubeV/test/parsing/examples/acc/fixed NCubeV/test/parsing/examples/acc/mapping "${SCRIPT_DIR}/path_RSSR/${1}.onnx" "${SCRIPT_DIR}/path_RSSR/${2}.jld" --approx 1
 }
 
+cd "${SCRIPT_DIR}"
 echo "Initial Run Starting NCubeV verification"
 log_file="${LOG_DIR}/reassure_repair_run_initial.log"
 run_ncubev "ppo_acc_bigger_200000_steps" "acc_bigger_polytopes" > "${log_file}" 2>&1 || {
@@ -53,27 +54,36 @@ julia acc_Ncube_polytope_convert.jl "path_RSSR/acc_bigger_polytopes.jld" > "${lo
     exit 1
   }
 
-for i in $(seq 1 2); do
-  log_file="${LOG_DIR}/reassure_repair_run_${i}_ub_${UPPER_BOUND}.log"
-  echo "Starting run ${i} with upper bound ${UPPER_BOUND}. Logs: ${log_file}"
+  
+echo "Starting REASSURE repair"
+"${PYTHON_BIN}" acc_REASSURE.py "initial" "${UPPER_BOUND}" > "${log_file}" 2>&1 || {
+echo "Initial run failed. Full log from ${log_file}:"
+cat "${log_file}"
+exit 1
+}
+echo "REASSURE repair completed successfully. Logs: ${log_file}"
 
-  (
-    cd "${SCRIPT_DIR}"
-    echo "[Run ${i}] Starting REASSURE repair"
-    "${PYTHON_BIN}" acc_REASSURE.py "${i}" "${UPPER_BOUND}"
+# for i in $(seq 1 2); do
+#   log_file="${LOG_DIR}/reassure_repair_run_${i}_ub_${UPPER_BOUND}.log"
+#   echo "Starting run ${i} with upper bound ${UPPER_BOUND}. Logs: ${log_file}"
 
-    echo "[Run ${i}] Starting NCubeV verification"
-    run_ncubev "ppo_acc_bigger_200000_steps-${UPPER_BOUND}-${i}" "acc_bigger_polytopes-${i}"
+#   (
+#     cd "${SCRIPT_DIR}"
+#     echo "[Run ${i}] Starting REASSURE repair"
+#     "${PYTHON_BIN}" acc_REASSURE.py "${i}" "${UPPER_BOUND}"
 
-    echo "[Run ${i}] Converting JLD to PKL"
-    julia acc_Ncube_polytope_convert.jl "path_RSSR/acc_bigger_polytopes-${i}.jld"
+#     echo "[Run ${i}] Starting NCubeV verification"
+#     run_ncubev "ppo_acc_bigger_200000_steps-${UPPER_BOUND}-${i}" "acc_bigger_polytopes-${i}"
 
-    echo "[Run ${i}] Completed successfully"
-  ) > "${log_file}" 2>&1 || {
-    echo "Run ${i} failed. Full log from ${log_file}:"
-    cat "${log_file}"
-    exit 1
-  }
+#     echo "[Run ${i}] Converting JLD to PKL"
+#     julia acc_Ncube_polytope_convert.jl "path_RSSR/acc_bigger_polytopes-${i}.jld"
 
-  echo "Run ${i} completed successfully."
-done
+#     echo "[Run ${i}] Completed successfully"
+#   ) > "${log_file}" 2>&1 || {
+#     echo "Run ${i} failed. Full log from ${log_file}:"
+#     cat "${log_file}"
+#     exit 1
+#   }
+
+  # echo "Run ${i} completed successfully."
+#done

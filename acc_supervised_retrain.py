@@ -340,7 +340,7 @@ train_actions = torch.stack(train_actions)
 # Training setup
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.policy.parameters(), lr=1e-5)
-n_epochs = 20
+n_epochs = 200
 batch_size = 256
 
 mean_reward, std_reward, nb_crashes = evaluate_policy2(model.policy, env2, n_eval_episodes=1000)
@@ -352,7 +352,7 @@ print(f"Starting supervised retraining for with batch size {batch_size}...")
 #for epoch in range(n_epochs):
 Loss = 100
 epoch = 0
-while Loss > 0.06:
+while Loss > 0.06 and epoch < n_epochs:
     for i in range(0, len(train_obs), batch_size):
         batch_obs = train_obs[i:i+batch_size].to(DEVICE)
         batch_actions = train_actions[i:i+batch_size].to(DEVICE)
