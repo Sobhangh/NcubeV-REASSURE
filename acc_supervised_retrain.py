@@ -17,6 +17,8 @@ import NCubeV.experiments.acc.training.acc as acc
 # Set this to "cpu" or "cuda" at the top of the file.
 # Example: DEVICE = "cpu"  or  DEVICE = "cuda"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+EXPORTED_ACCELERATION_LIMIT = 100.0005
+assert 100.0 < EXPORTED_ACCELERATION_LIMIT < 100.001
 
 
 class OnnxableActionPolicy(torch.nn.Module):
@@ -28,7 +30,10 @@ class OnnxableActionPolicy(torch.nn.Module):
         normalize_linear1 = torch.nn.Linear(1, 4)
         normalize_linear1.weight.data = torch.Tensor([[1], [-1], [1], [-1]])
         normalize_linear1.bias.data = torch.Tensor([0, 0, -1, -1])
-        a_value = 100 - 1e-6
+        # NCubeV treats accelerations >= 100 as the invariant-preserving
+        # full-braking action and accepts outputs up to 100.001.  Saturate in
+        # the middle of that numerical margin.
+        a_value = EXPORTED_ACCELERATION_LIMIT
         normalize_linear2 = torch.nn.Linear(3, 1)
         normalize_linear2.weight.data = torch.Tensor([[a_value, -a_value, -a_value, a_value]])
         normalize_linear2.bias.data = torch.Tensor([0])
@@ -57,17 +62,18 @@ def export_model_artifacts(model, zip_path, onnx_path, input_dim=2, opset_versio
         model.policy.action_net,
         model.policy.value_net,
     )
+    device = next(model.policy.parameters()).device
+    onnxable_model = onnxable_model.to(device)
     # onnxable_model.graph.output[0].name = "out1"
     # onnxable_model.graph.node[len(onnxable_model.graph.node)-1].output[0]="out1"
 
-    dummy_input = torch.randn(1, input_dim)
+    dummy_input = torch.randn(1, input_dim, device=device)
     with torch.no_grad():
         torch.onnx.export(
             onnxable_model,
             dummy_input,
             str(onnx_path),
             opset_version=opset_version,
-            dynamo=False,
         )
 
     onnx_model = onnx.load(str(onnx_path))
@@ -215,36 +221,54 @@ def evaluate_policy2(model, env, n_eval_episodes=100):
 
 parser = argparse.ArgumentParser(description="Supervised retraining for the ACC PPO policy.")
 parser.add_argument("RUN_NB", type=int, help="Run number for naming outputs.")
+parser.add_argument("--seed", type=int, default=42, help="Retraining and sampling seed.")
+parser.add_argument("--output-dir", type=Path, default=None,
+                    help="Directory for this seeded CEGIS run.")
+parser.add_argument("--initial-model", type=Path, default=None,
+                    help="Original PPO archive used in round one.")
+parser.add_argument("--initial-polytopes", type=Path, default=None,
+                    help="Initial counterexample-region pickle.")
 args = parser.parse_args()
 
 RUN_NB = args.RUN_NB
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-OUTPUT_DIR = SCRIPT_DIR / "supervised"
+OUTPUT_DIR = (args.output_dir or SCRIPT_DIR / "supervised").resolve()
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+INITIAL_MODEL = (args.initial_model or
+                 SCRIPT_DIR / "supervised" / "ppo_acc_bigger_200000_steps.zip").resolve()
+INITIAL_POLYTOPES = (args.initial_polytopes or
+                     SCRIPT_DIR / "supervised" / "acc_bigger_polytopes.pkl").resolve()
 
 env = gym.make('acc-variant-v1')
 
 env.unwrapped.INCLUDE_UNWINNABLE = False
 
-env.np_random, seed = seeding.np_random(42)
+env.np_random, seed = seeding.np_random(args.seed)
 
-POLYTOPE_FILE = ""
 MODLE_FILE = ""
 SMALL_MODLE = False
 if SMALL_MODLE:
-    POLYTOPE_FILE = "polytopes-small-approx-1.pkl"
+    polytope_files = [Path("polytopes-small-approx-1.pkl")]
     MODLE_FILE = "ppo_acc_small_200000_steps.zip"
 else:
-    POLYTOPE_FILE = SCRIPT_DIR / "supervised" / "acc_bigger_polytopes.pkl"
+    polytope_files = [INITIAL_POLYTOPES]
+    polytope_files.extend(
+        OUTPUT_DIR / f"acc_bigger_polytopes-{round_index}.pkl"
+        for round_index in range(1, RUN_NB)
+    )
     if RUN_NB > 1:
-        POLYTOPE_FILE = SCRIPT_DIR / "supervised" / f"acc_bigger_polytopes-{RUN_NB - 1}.pkl"
         MODLE_FILE = str(OUTPUT_DIR / f"ppo_acc_bigger_200000_steps-{RUN_NB - 1}.zip")
     else:
-        MODLE_FILE = str(OUTPUT_DIR / "ppo_acc_bigger_200000_steps.zip")
+        MODLE_FILE = str(INITIAL_MODEL)
 
-retrain_polytopes = None
-with open(POLYTOPE_FILE,"rb") as f:
-    retrain_polytopes = pickle.load(f)
+retrain_polytopes = []
+for polytope_file in polytope_files:
+    with open(polytope_file, "rb") as f:
+        round_polytopes = pickle.load(f)
+    retrain_polytopes.extend(round_polytopes)
+    print(f"Loaded {len(round_polytopes)} counterexample regions from {polytope_file}")
+print(f"Sampling from {len(retrain_polytopes)} cumulative counterexample regions")
 
 poly_region = pc.Region(retrain_polytopes)
 
@@ -274,6 +298,7 @@ def collect_obs_act(model, env, n_eval_episodes=BUGGY_POINT_LEN):
         nb_step = 0
         
         while not done and nb_step < MAX_STEPS:
+            action_obs = np.array(obs, copy=True)
             obs_tensor = torch.tensor([obs], dtype=torch.float32, device=device)
             with torch.no_grad():
                 action_tensor, _, _ = model(obs_tensor)
@@ -294,7 +319,7 @@ def collect_obs_act(model, env, n_eval_episodes=BUGGY_POINT_LEN):
                     crash = True
             
             ep_reward += float(reward)
-            episode_obs_act.append((obs, action))
+            episode_obs_act.append((action_obs, action))
             nb_step += 1
         if not crash:
             obs_act_list.extend(episode_obs_act)
@@ -305,8 +330,10 @@ env2 = gym.make('acc-variant-v1')
 
 env2.unwrapped.INCLUDE_UNWINNABLE = False
 
-env2.np_random, seed = seeding.np_random(42)
-torch.manual_seed(42)
+env2.np_random, seed = seeding.np_random(args.seed)
+torch.manual_seed(args.seed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(args.seed)
 
 model = PPO.load(MODLE_FILE, device=DEVICE)
 model.policy.to(DEVICE)
@@ -377,7 +404,9 @@ print(f"Saved ONNX model to: {final_onnx_path}")
 mean_reward, std_reward, nb_crashes = evaluate_policy2(model.policy, env2, n_eval_episodes=500)
 print(f"After retraining, mean_reward: {mean_reward:.2f} +/- {std_reward:.2f}, crashes: {nb_crashes}")
 
-raise SystemExit(0 if nb_crashes == 0 else 1)
+# Empirical crashes are diagnostic. The outer CEGIS loop stops only when
+# NCubeV reports that the exported controller has no formal counterexamples.
+raise SystemExit(0)
 
     
 

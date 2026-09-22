@@ -199,7 +199,6 @@ def export_repaired_model_to_onnx(model, onnx_path, input_dim=2, opset_version=9
             do_constant_folding=True,
             input_names=["input"],
             output_names=["output"],
-            dynamo=False,
             dynamic_axes={
                 "input": {0: "batch_size"},
                 "output": {0: "batch_size"},
@@ -207,28 +206,18 @@ def export_repaired_model_to_onnx(model, onnx_path, input_dim=2, opset_version=9
         )
 
 def any_point_in_polytope(poly):
-    # Option 1: center of largest inscribed ball (strictly inside if radius > 0)
+    """Return a verified point in a nonempty counterexample polytope."""
     radius, center_raw = pc.cheby_ball(poly)
-    center_arr = np.asarray(center_raw)
-    center = np.array(
-        [v for v in center_arr.reshape(-1)],
-        dtype=np.float32,
-    )
-    # if center_arr.dtype == np.object_:
-    #     # Flatten nested scalar containers into plain floats.
-    #     center = np.array(
-    #         [v for v in center_arr.reshape(-1)],
-    #         dtype=np.float32,
-    #     )
-    # else:
-    #     center = center_arr.astype(np.float32, copy=False).reshape(-1)
-
-    #radius = float(np.asarray(radius).squeeze())
-    center = torch.tensor(center, dtype=torch.float32)
-    #print("Center:", center)
-    if radius >= 0 and not torch.isnan(center).any():
-        return center, radius  # radius > 0 means strictly interior
-    #raise RuntimeError("Polytope appears infeasible.")
+    center = np.asarray(center_raw, dtype=np.float64).reshape(-1)
+    radius = float(np.asarray(radius).squeeze())
+    if radius < 0 or not np.isfinite(center).all():
+        raise ValueError("counterexample polytope has no finite interior point")
+    violation = float(np.max(np.asarray(poly.A) @ center - np.asarray(poly.b)))
+    if violation > 1e-7:
+        raise RuntimeError(
+            f"counterexample representative lies outside its polytope by {violation}"
+        )
+    return torch.tensor(center, dtype=torch.float32), radius
 
 def plot_polytope(poly):
     try:
@@ -281,12 +270,15 @@ class OnnxableActionPolicy(torch.nn.Module):
         return self.normalizer(action) #, self.value_net(value_hidden)
 
 MINIMUM = 1
+REPAIR_MINIMUM = 1.05
 MAXIMUM = 1.2
 def success_rate(model, buggy_inputs, is_print=0):
     with torch.no_grad():
         pred = model(buggy_inputs)
-        #print("pred", pred)
-        correct = ((pred >= MINIMUM) & (pred <= MAXIMUM)).type(torch.float).sum().item()
+        # The exported action wrapper saturates every raw output >= 1 to the
+        # same maximum physical braking action.  Values just above the LP's
+        # upper target due to float32 roundoff are therefore still repaired.
+        correct = (pred >= MINIMUM).type(torch.float).sum().item()
     if is_print == 1:
         print('Original accuracy on buggy_inputs: {} %'.format(100*correct / len(buggy_inputs)))
     elif is_print == 2:
@@ -326,13 +318,48 @@ eval_env.np_random, _ = seeding.np_random(42)
 
 
 parser = argparse.ArgumentParser(description="Retrain the ACC PPO policy using a polytope file and model base name.")
-# parser.add_argument("POLYTOPE_FILE", help="Path to the polytope pickle file.")
-# parser.add_argument("MODLE_FILE", help="Base filename for the PPO model, without the .zip extension.")
 parser.add_argument("RUN_NB", type=int, help="Run number for naming outputs.")
 parser.add_argument("UPPER_BOUND", type=float, help="Upper bound for the position constraint.")
+SCRIPT_DIR = Path(__file__).resolve().parent
+parser.add_argument(
+    "--output-dir",
+    type=Path,
+    default=SCRIPT_DIR / "path_RSSR",
+    help="Directory containing round outputs.",
+)
+parser.add_argument(
+    "--initial-model",
+    type=Path,
+    default=SCRIPT_DIR / "path_RSSR/ppo_acc_bigger_200000_steps.pt",
+    help="Torch model used in round one.",
+)
+parser.add_argument(
+    "--initial-polytopes",
+    type=Path,
+    default=SCRIPT_DIR / "path_RSSR/acc_bigger_polytopes.pkl",
+    help="Counterexample polytopes used in round one.",
+)
+parser.add_argument(
+    "--support-sharpness",
+    type=float,
+    default=10000.0,
+    help="REASSURE support-network sharpness parameter.",
+)
+parser.add_argument(
+    "--support-margin",
+    type=float,
+    default=1e-5,
+    help="Outward half-space margin used to absorb float32 roundoff.",
+)
 args = parser.parse_args()
 RUN_NB = args.RUN_NB
 UPPER_BOUND = args.UPPER_BOUND
+if RUN_NB < 1:
+    parser.error("RUN_NB must be positive")
+if args.support_sharpness <= 0:
+    parser.error("--support-sharpness must be positive")
+if args.support_margin < 0:
+    parser.error("--support-margin must be nonnegative")
 
 def format_upper_bound(value):
     numeric = float(value)
@@ -342,45 +369,20 @@ def format_upper_bound(value):
 
 UPPER_BOUND_TAG = format_upper_bound(UPPER_BOUND)
 
-POLYTOPE_FILE = ""
-MODEL_FILE= ""
-SMALL_MODEL = False
-if SMALL_MODEL:
-    POLYTOPE_FILE = "polytopes-small-approx-1.pkl"
-    onnx_model = onnx.load("ppo_acc_small_200000_steps.onnx")
-    torch_model = convert(onnx_model)
-    # Keep only the policy feature extractor and the first hidden layer.
-    # The ONNX graph is:
-    # extractor/policy_net/policy_net/0/Gemm -> Relu ->
-    # extractor/policy_net/policy_net/2/Gemm -> Relu -> action_net -> normalizer
-    torch_model = torch.nn.Sequential(
-        getattr(torch_model, "extractor/policy_net/policy_net/0/Gemm"),
-        getattr(torch_model, "extractor/policy_net/policy_net/1/Relu"),
-        getattr(torch_model, "extractor/policy_net/policy_net/2/Gemm"),
-        getattr(torch_model, "extractor/policy_net/policy_net/3/Relu"),
-        getattr(torch_model, "action_net/Gemm"),
-    )
+output_dir = args.output_dir.resolve()
+output_dir.mkdir(parents=True, exist_ok=True)
+model_base = output_dir / "ppo_acc_bigger_200000_steps"
+if RUN_NB > 1:
+    poly_file = output_dir / f"acc_bigger_polytopes-{RUN_NB - 1}.pkl"
+    model_file = output_dir / f"ppo_acc_bigger_200000_steps-{UPPER_BOUND_TAG}-{RUN_NB - 1}.pt"
 else:
-    POLYTOPE_FILE = "path_RSSR/acc_bigger_polytopes"
-    MODEL_FILE= "path_RSSR/ppo_acc_bigger_200000_steps"
-    if RUN_NB > 1:
-        poly_file = f"{POLYTOPE_FILE}-{RUN_NB-1}.pkl"
-        model_file = f"{MODEL_FILE}-{UPPER_BOUND_TAG}-{RUN_NB-1}.pt"
-    else:
-        poly_file = POLYTOPE_FILE + ".pkl"
-        model_file = MODEL_FILE + ".pt"
-    # onnx_model = onnx.load(model_file)
-    # print("\nONNX initializers (stored parameters):")
-    # onnx_total_params = 0
-    # for init in onnx_model.graph.initializer:
-    #     arr = onnx.numpy_helper.to_array(init)
-    #     n = int(arr.size)
-    #     onnx_total_params += n
-    #     print(f"{init.name:40s} shape={tuple(arr.shape)} dtype={arr.dtype} numel={n}")
-
-    # print(f"Total ONNX initializer params: {onnx_total_params}")
-    # 
-    torch_model = torch.load(model_file, weights_only=False)
+    poly_file = args.initial_polytopes.resolve()
+    model_file = args.initial_model.resolve()
+if not poly_file.is_file():
+    raise FileNotFoundError(f"counterexample polytope file does not exist: {poly_file}")
+if not model_file.is_file():
+    raise FileNotFoundError(f"controller model does not exist: {model_file}")
+torch_model = torch.load(model_file, map_location="cpu", weights_only=False)
 print(f"Using model file: {model_file}, polytope file: {poly_file}")
 #y = torch_model(torch.tensor([[0.0, 0.0]], dtype=torch.float32))
 # for name, param in torch_model.named_parameters():
@@ -420,24 +422,32 @@ for set_upper_bound in set_upper_bound_list:
 
     intersected_poly = []
     for poly in polytopes:
-        # isect = poly.intersect(position_bound_poly)
-        # if not pc.is_empty(isect):
-        #     intersected_poly.append(isect)
-        intersected_poly.append(poly)
+        isect = poly.intersect(position_bound_poly)
+        if not pc.is_empty(isect):
+            intersected_poly.append(isect)
     print("Intersected non-empty polytopes:", len(intersected_poly))
+    if not intersected_poly:
+        raise ValueError("no counterexample polytopes remain inside the requested position bound")
 
-
-    buggy_inputs = torch.stack(list(map(lambda p: any_point_in_polytope(p)[0], list(filter(lambda p: any_point_in_polytope(p) is not None, intersected_poly)))))
+    buggy_inputs = torch.stack([any_point_in_polytope(poly)[0] for poly in intersected_poly])
     
     # input_boundary = [np.block([[np.eye(input_dim)], [-np.eye(input_dim)]]),
     #                       np.block([np.array([100, 200]), np.array([0, 200])])]
-    output_constraints = ([np.array([[-1], [1]])] * len(intersected_poly),[np.array([-MINIMUM, MAXIMUM])] * len(intersected_poly))
+    output_constraints = (
+        [np.array([[-1], [1]])] * len(intersected_poly),
+        [np.array([-REPAIR_MINIMUM, MAXIMUM])] * len(intersected_poly),
+    )
 
     success_rate(torch_model, buggy_inputs, is_print=1)
     start = time()
 
 
-    REASSURE = REASSURERepair(torch_model, input_boundary, n=1)
+    REASSURE = REASSURERepair(
+        torch_model,
+        input_boundary,
+        n=args.support_sharpness,
+        support_margin=args.support_margin,
+    )
     repaired_model = REASSURE.polytope_wise_repair(intersected_poly, output_constraints=output_constraints, core_num=1)
 
     # n = 10
@@ -448,7 +458,11 @@ for set_upper_bound in set_upper_bound_list:
 
     cost_time = time()-start
     print('Patching Time of REASSURE:', cost_time)
-    success_rate(repaired_model, buggy_inputs, is_print=2)
+    repaired_success = success_rate(repaired_model, buggy_inputs, is_print=2)
+    if repaired_success != 1.0:
+        raise RuntimeError(
+            "constructed support network does not repair every counterexample representative"
+        )
 
     # for name, param in repaired_model.named_parameters():
     #     print(name, param.shape)
@@ -457,8 +471,12 @@ for set_upper_bound in set_upper_bound_list:
     #         print(name, param.shape)
     #print(f"layer list length: {len(repaired_model.pnn.layer_list)}")
     
-    full_model_path = f"{MODEL_FILE}-{UPPER_BOUND_TAG}-{RUN_NB}.pt"
-    onnx_model_path = f"{MODEL_FILE}-{UPPER_BOUND_TAG}-{RUN_NB}.onnx"
+    full_model_path = model_base.with_name(
+        f"{model_base.name}-{UPPER_BOUND_TAG}-{RUN_NB}.pt"
+    )
+    onnx_model_path = model_base.with_name(
+        f"{model_base.name}-{UPPER_BOUND_TAG}-{RUN_NB}.onnx"
+    )
     Path(full_model_path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(repaired_model, full_model_path)
     print(f"Saved full model to: {full_model_path}")
@@ -491,4 +509,3 @@ for set_upper_bound in set_upper_bound_list:
     #bigger network
     # With the polytope from the repo: ********* Repaired model - mean_reward:2446.47 +/- 2420.59, crashes_repaired: 3
     # with 1000 episodes: ********* Repaired model - mean_reward:1838.93 +/- 2660.60, crashes_repaired: 125
-

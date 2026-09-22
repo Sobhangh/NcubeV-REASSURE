@@ -3,7 +3,7 @@ from scipy.optimize import linprog
 
 
 class SupportNet(nn.Module):
-    def __init__(self, A: np.ndarray, b: np.ndarray, n):
+    def __init__(self, A: np.ndarray, b: np.ndarray, n, margin=0.0):
         """
         SupportNN is a neural network that almost only active on polytope {x|Ax<=b}.
         :param A, b: H-rep of a polytope.
@@ -12,7 +12,7 @@ class SupportNet(nn.Module):
         super(SupportNet, self).__init__()
         assert len(A) == len(b)
         self.A = torch.tensor(A, dtype=torch.float32)
-        self.b = torch.tensor(b, dtype=torch.float32)
+        self.b = torch.tensor(b, dtype=torch.float32) + float(margin)
         assert len(self.A.size()) == 2
         self.layer = nn.Linear(*self.A.size())
         self.layer.weight = torch.nn.Parameter(-self.A)

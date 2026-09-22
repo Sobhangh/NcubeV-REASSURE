@@ -8,10 +8,11 @@ from .RepairModules import SupportNet, SingleRegionRepairNet, NetSum
 
 
 class REASSURERepair:
-    def __init__(self, model, input_boundary, n=10):
+    def __init__(self, model, input_boundary, n=10, support_margin=0.0):
         self.model = model
         self.input_boundary = input_boundary
         self.n = n
+        self.support_margin = support_margin
 
     def point_wise_repair(self, buggy_inputs, output_constraints, core_num=1):
         print(f'Working on {core_num} cores.')
@@ -30,7 +31,7 @@ class REASSURERepair:
             buggy_input, self.model.allHiddenNeurons(buggy_input).view(-1), self.input_boundary)
         A, b = patch_area
         # temp = np.matmul(A, buggy_input.detach().squeeze().numpy()) - b
-        g = SupportNet(A, b, self.n)
+        g = SupportNet(A, b, self.n, self.support_margin)
         linearized_model = linearize_model(buggy_input, self.model)
         c, d = self.repair_via_LP(patch_area, output_constraint, linearized_model)
         p = SingleRegionRepairNet(g, c, d, self.input_boundary)
@@ -38,31 +39,69 @@ class REASSURERepair:
 
     def polytope_wise_repair(self, patch_areas, output_constraints, core_num=1):
         print(f'Working on {core_num} cores.')
-        repair_net_list = [self._repair_one_patch(patch_areas[i], [output_constraints[0][i], output_constraints[1][i]]) for i in range(len(patch_areas))]
-        total_repair = len(repair_net_list)
-        # Filter out None values in case some patches did not yield a feasible solution
-        repair_net_list = [p for p in repair_net_list if p is not None]
-        filtered_repair = len(repair_net_list)
-        print(f"Filtered out {(total_repair - filtered_repair)/total_repair}% patches due to infeasibility. Total patches: {total_repair}, Feasible patches: {filtered_repair}")
+        if not patch_areas:
+            raise ValueError("polytope-wise repair requires at least one patch area")
+        if len(output_constraints) != 2 or any(
+            len(part) != len(patch_areas) for part in output_constraints
+        ):
+            raise ValueError("every patch area must have one output constraint")
+        repair_net_list = [
+            self._repair_one_patch(
+                patch_areas[i],
+                [output_constraints[0][i], output_constraints[1][i]],
+            )
+            for i in range(len(patch_areas))
+        ]
         g_list = [p[0] for p in repair_net_list]
         cd_list = [p[1] for p in repair_net_list]
         h = MultiPNN(g_list, cd_list, self.input_boundary)
         return NNSum(self.model, h)
+
+    @staticmethod
+    def _interior_point(A, b):
+        """Return a verified Chebyshev center of ``{x | A x <= b}``."""
+        A = np.asarray(A, dtype=float)
+        b = np.asarray(b, dtype=float).reshape(-1)
+        if A.ndim != 2 or len(A) != len(b):
+            raise ValueError("invalid polytope half-space representation")
+
+        dimension = A.shape[1]
+        row_norms = np.linalg.norm(A, axis=1)
+        objective = np.zeros(dimension + 1)
+        objective[-1] = -1.0
+        constraints = np.column_stack((A, row_norms))
+        solution = linprog(
+            objective,
+            A_ub=constraints,
+            b_ub=b,
+            bounds=[(None, None)] * dimension + [(0.0, None)],
+            method="highs",
+        )
+        if not solution.success:
+            raise ValueError(
+                "could not find an interior point for a counterexample polytope: "
+                f"{solution.message}"
+            )
+        point = solution.x[:-1]
+        violation = float(np.max(A @ point - b))
+        if violation > 1e-7:
+            raise RuntimeError(
+                f"computed counterexample representative lies outside its polytope by {violation}"
+            )
+        return point
     
     def _repair_one_patch(self, patch_area, output_constraint):
         A, b = patch_area.A, patch_area.b
-        g = SupportNet(A, b, self.n)
-        # For the purpose of linearization, we need a representative point inside the patch
-        # Here we take the center of the patch as the representative point
-        center = np.linalg.pinv(A) @ b
+        g = SupportNet(A, b, self.n, self.support_margin)
+        # NCubeV counterexamples are affine regions of the ReLU controller.
+        # Linearize at a point certified to lie in that region.
+        center = self._interior_point(A, b)
         buggy_input = torch.tensor(center, dtype=torch.float32).view(1, -1)
-        #print("Representative point for linearization:", buggy_input)
         buggy_input.requires_grad = True
         linearized_model = linearize_model(buggy_input, self.model)
         c, d = self.repair_via_LP((patch_area.A, patch_area.b), output_constraint, linearized_model)
         if c is None or d is None:
-            print("Warning: LP did not find a feasible solution for this patch. Returning None.")
-            return None
+            raise RuntimeError("REASSURE LP is infeasible for a counterexample polytope")
         p = (g, (c, d)) #SingleRegionRepairNet(g, c, d, self.input_boundary)
         return p
 
