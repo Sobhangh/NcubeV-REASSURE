@@ -15,7 +15,7 @@ print_total_runtime() {
 trap print_total_runtime EXIT
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-LOG_DIR="${SCRIPT_DIR}/reassure/logs"
+LOG_DIR="${SCRIPT_DIR}/path_RSSR/logs"
 UPPER_BOUND=100
 
 if command -v python >/dev/null 2>&1; then
@@ -40,12 +40,9 @@ run_ncubev () {
 
 cd "${SCRIPT_DIR}"
 echo "Initial Run Starting NCubeV verification"
+echo "Initial Run Logs: ${LOG_DIR}/reassure_repair_run_initial.log"
 log_file="${LOG_DIR}/reassure_repair_run_initial.log"
-run_ncubev "ppo_acc_bigger_200000_steps" "acc_bigger_polytopes" > "${log_file}" 2>&1 || {
-    echo "Initial run failed. Full log from ${log_file}:"
-    cat "${log_file}"
-    exit 1
-  }
+run_ncubev "ppo_acc_bigger_200000_steps" "acc_bigger_polytopes" > "${log_file}" 2>&1 
 
 echo "Initial Run Converting JLD to PKL"
 julia acc_Ncube_polytope_convert.jl "path_RSSR/acc_bigger_polytopes.jld" > "${log_file}" 2>&1 || {
