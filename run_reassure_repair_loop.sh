@@ -35,7 +35,7 @@ fi
 mkdir -p "${LOG_DIR}"
 
 run_ncubev () {
-  OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./NCubeV/deps/NCubeV/bin/NCubeV NCubeV/test/parsing/examples/acc/formula NCubeV/test/parsing/examples/acc/fixed NCubeV/test/parsing/examples/acc/mapping "${SCRIPT_DIR}/path_RSSR/${1}.onnx" "${SCRIPT_DIR}/path_RSSR/${2}.jld" --approx 1
+  OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./NCubeV/deps/NCubeV/bin/NCubeV NCubeV/test/parsing/examples/acc/formula NCubeV/test/parsing/examples/acc/fixed NCubeV/test/parsing/examples/acc/mapping "${SCRIPT_DIR}/path_RSSR/${1}.onnx" "${SCRIPT_DIR}/path_RSSR/${2}" --approx 1
 }
 
 cd "${SCRIPT_DIR}"
@@ -45,7 +45,7 @@ log_file="${LOG_DIR}/reassure_repair_run_initial.log"
 run_ncubev "ppo_acc_bigger_200000_steps" "acc_bigger_polytopes" > "${log_file}" 2>&1 
 
 echo "Initial Run Converting JLD to PKL"
-julia acc_Ncube_polytope_convert.jl "path_RSSR/acc_bigger_polytopes.jld" > "${log_file}" 2>&1 || {
+julia acc_Ncube_polytope_convert.jl "path_RSSR/acc_bigger_polytopes-final.jld" > "${log_file}" 2>&1 || {
     echo "Initial run failed. Full log from ${log_file}:"
     cat "${log_file}"
     exit 1
