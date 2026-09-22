@@ -235,9 +235,9 @@ if SMALL_MODLE:
     POLYTOPE_FILE = "polytopes-small-approx-1.pkl"
     MODLE_FILE = "ppo_acc_small_200000_steps.zip"
 else:
-    POLYTOPE_FILE = SCRIPT_DIR / "supervised" / "acc-2000000-64-64-64-64-polytopes.pkl"
+    POLYTOPE_FILE = SCRIPT_DIR / "supervised" / "acc_bigger_polytopes.pkl"
     if RUN_NB > 1:
-        POLYTOPE_FILE = SCRIPT_DIR / "supervised" / f"acc-2000000-64-64-64-64-polytopes-{RUN_NB - 1}.pkl"
+        POLYTOPE_FILE = SCRIPT_DIR / "supervised" / f"acc_bigger_polytopes-{RUN_NB - 1}.pkl"
         MODLE_FILE = str(OUTPUT_DIR / f"ppo_acc_bigger_200000_steps-{RUN_NB - 1}.zip")
     else:
         MODLE_FILE = str(OUTPUT_DIR / "ppo_acc_bigger_200000_steps.zip")
