@@ -19,7 +19,8 @@ if !endswith(lowercase(input_name), ".jld")
     error("Expected a .jld file path, got: $(input_name)")
 end
 
-output_name = replace(input_name, r"\.jld$" => ".pkl")
+base_name = replace(input_name, r"-final\.jld$" => ".jld")
+output_name = replace(base_name, r"\.jld$" => ".pkl")
 
 # results-approx-1.jld
 # For a run number, you can pass e.g. 0 and this will use the matching filename pattern if present.

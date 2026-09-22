@@ -1,4 +1,4 @@
-set -euo pipefail
+#set -euo pipefail
 
 echo "Running example: ACC REASSURE"
 echo "BEWARE: Before running this you need to build NCubeV and have the REASSURE dependencies available"

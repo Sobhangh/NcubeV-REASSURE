@@ -1,4 +1,4 @@
-set -euo pipefail
+#set -euo pipefail
 
 echo "Running example: ACC SUPERVISED"
 echo "BEWARE: Before running this you need to build NCubeV and have the supervised dependencies available"
@@ -30,7 +30,7 @@ fi
 mkdir -p "${LOG_DIR}"
 
 run_ncubev () {
-  OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./NCubeV/deps/NCubeV/bin/NCubeV NCubeV/test/parsing/examples/acc/formula NCubeV/test/parsing/examples/acc/fixed NCubeV/test/parsing/examples/acc/mapping "${SCRIPT_DIR}/supervised/${1}.onnx" "${SCRIPT_DIR}/supervised/${2}.jld" --approx 1
+  OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./NCubeV/deps/NCubeV/bin/NCubeV NCubeV/test/parsing/examples/acc/formula NCubeV/test/parsing/examples/acc/fixed NCubeV/test/parsing/examples/acc/mapping "${SCRIPT_DIR}/supervised/${1}.onnx" "${SCRIPT_DIR}/supervised/${2}" --approx 1
 }
 
 run_nb=1
@@ -55,7 +55,7 @@ while true; do
     run_ncubev "ppo_acc_bigger_200000_steps-${run_nb}" "acc_bigger_polytopes-${run_nb}"
 
     echo "[Run ${run_nb}] Converting JLD to PKL"
-    julia acc_Ncube_polytope_convert.jl "supervised/acc_bigger_polytopes-${run_nb}.jld"
+    julia acc_Ncube_polytope_convert.jl "supervised/acc_bigger_polytopes-${run_nb}-final.jld"
 
     echo "[Run ${run_nb}] Completed successfully"
   ) >> "${log_file}" 2>&1

@@ -44,7 +44,7 @@ class OnnxableActionPolicy(torch.nn.Module):
         return self.normalizer(action)
 
 
-def export_model_artifacts(model, zip_path, onnx_path, input_dim=2, opset_version=9):
+def export_model_artifacts(model, zip_path, onnx_path, input_dim=2, opset_version=14):
     zip_path = Path(zip_path)
     onnx_path = Path(onnx_path)
     zip_path.parent.mkdir(parents=True, exist_ok=True)
@@ -67,6 +67,7 @@ def export_model_artifacts(model, zip_path, onnx_path, input_dim=2, opset_versio
             dummy_input,
             str(onnx_path),
             opset_version=opset_version,
+            dynamo=False,
         )
 
     onnx_model = onnx.load(str(onnx_path))
