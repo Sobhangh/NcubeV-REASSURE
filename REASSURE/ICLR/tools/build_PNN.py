@@ -113,15 +113,24 @@ class MultiPNN(nn.Module):
         #     return res
 
         
+        # Express suffix maxima through ReLUs so the exported ONNX remains a
+        # ReLU network.  Treating ONNX ReduceMax as an affine layer would be
+        # unsound in NNEnum.  Computing the suffixes once also avoids the old
+        # quadratic re-evaluation of support networks.
+        supports = [support(x) for support in self.g_list]
+        suffix_max = [None] * len(supports)
+        running = supports[-1]
+        suffix_max[-1] = running
+        for i in range(len(supports) - 2, -1, -1):
+            running = torch.relu(running - supports[i]) + supports[i]
+            suffix_max[i] = running
+
         res = 0
-        for i in range(len(self.g_list)):
-            if i < len(self.g_list) - 1:
-                y = [self.g_list[k](x) for k in range(i, len(self.g_list))]
-                g_max = torch.max(torch.cat(y, dim=-1), dim=-1).values.unsqueeze(1)
-            else:
-                g_max = self.g_list[i](x)
-            res += nn.ReLU()(self.layer_list[i](x) + self.K_list[i]*g_max-self.K_list[i]) \
-               - nn.ReLU()(-self.layer_list[i](x) + self.K_list[i]*g_max-self.K_list[i])
+        for i, g_max in enumerate(suffix_max):
+            linear = self.layer_list[i](x)
+            negative_linear = torch.mul(linear, -1.0)
+            res += nn.ReLU()(linear + self.K_list[i]*g_max-self.K_list[i]) \
+               - nn.ReLU()(negative_linear + self.K_list[i]*g_max-self.K_list[i])
         return res
 
         
@@ -461,4 +470,3 @@ if __name__ == '__main__':
     # print(model(inputs) + h(inputs))
     #
     # print(h(torch.rand([100, 2])))
-

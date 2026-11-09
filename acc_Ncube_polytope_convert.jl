@@ -15,22 +15,32 @@ if length(ARGS) < 1
 end
 
 input_name = ARGS[1]
-if !endswith(lowercase(input_name), ".jld")
-    error("Expected a .jld file path, got: $(input_name)")
+if !endswith(lowercase(input_name), "-final.jld")
+    error("Expected an NCubeV -final.jld file path, got: $(input_name)")
 end
 
-base_name = replace(input_name, r"-final\.jld$" => ".jld")
-output_name = replace(base_name, r"\.jld$" => ".pkl")
+output_name = replace(input_name, r"-final\.jld$" => ".pkl")
 
 # results-approx-1.jld
 # For a run number, you can pass e.g. 0 and this will use the matching filename pattern if present.
 data_path = abspath(joinpath(@__DIR__, input_name))
-acc_data = load(data_path)
-print(acc_data["args"])
-acc_result = acc_data["result"]
-acc_result = acc_result[1]
-acc_stars = acc_result.stars
-#acc_stars = map(x->x.stars, acc_result)
+data_dir = dirname(data_path)
+output_prefix = replace(basename(data_path), r"-final\.jld$" => "")
+backup_pattern = Regex("^" * output_prefix * "-[0-9]+\\.jld\$")
+backup_paths = sort(filter(path -> occursin(backup_pattern, basename(path)), readdir(data_dir; join=true)))
+data_paths = [backup_paths; data_path]
+
+# NCubeV may store several query results in each JLD and periodically flush
+# earlier results into numbered backup JLDs.  Every such batch is part of the
+# same verification run and must contribute counterexamples to the next round.
+acc_stars = Any[]
+for result_path in data_paths
+    acc_data = load(result_path)
+    for result in acc_data["result"]
+        append!(acc_stars, result.stars)
+    end
+end
+println("Loaded ", length(data_paths), " NCubeV result file(s)")
 println("Number of stars: ", length(acc_stars))
 println("Number of certain stars: ", length(filter(x->x.certain,acc_stars)))
 #println(propertynames(acc_stars[1]))
