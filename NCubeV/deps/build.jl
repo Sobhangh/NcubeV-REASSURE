@@ -18,7 +18,8 @@ for channel in ("https://repo.anaconda.com/pkgs/main", "https://repo.anaconda.co
 end
 @info "Installing packages necessary for NNEnum"
 Conda.add("certifi")
-Conda.add("python=3.8")
+# Recent pip releases require Python >= 3.11, so pip must be downgraded together with Python.
+Conda.runconda(`install -y python=3.8 $("pip<25.1")`)
 # Update PyCall build so that it knows that we run on Python 3.8
 pkg"build PyCall"
 Conda.pip_interop(true)
