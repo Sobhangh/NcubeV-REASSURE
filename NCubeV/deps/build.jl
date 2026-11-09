@@ -6,6 +6,16 @@ ENV["PYTHON"] = ""
 pkg"build PyCall"
 @info "Loading Conda"
 using Conda
+# Recent conda versions refuse non-interactive installs from the Anaconda default channels
+# until their Terms of Service are accepted.
+ENV["CONDA_PLUGINS_AUTO_ACCEPT_TOS"] = "yes"
+for channel in ("https://repo.anaconda.com/pkgs/main", "https://repo.anaconda.com/pkgs/r")
+	try
+		Conda.runconda(`tos accept --override-channels --channel $channel`)
+	catch err
+		@warn "Could not accept conda ToS for $channel (older conda without `tos`?)" exception=err
+	end
+end
 @info "Installing packages necessary for NNEnum"
 Conda.add("certifi")
 Conda.add("python=3.8")
