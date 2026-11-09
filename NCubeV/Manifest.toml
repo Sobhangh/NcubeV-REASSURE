@@ -648,9 +648,7 @@ version = "1.2.0"
 
 [[deps.OVERT]]
 deps = ["Calculus", "Interpolations", "MacroTools", "NLsolve", "Roots", "SymEngine"]
-git-tree-sha1 = "f5fc7bb6f51995f49f9d7036887e5877bf9e2309"
-repo-rev = "7d6c901070edc19445d40522d152b6863d650927"
-repo-url = "deps/OVERTFixed"
+path = "deps/OVERTFixed"
 uuid = "1b46728c-11fc-11ef-2c8c-f7c73a33b682"
 version = "0.1.3"
 
